@@ -144,7 +144,7 @@ enum AudioRoute {
         var seen = Set<String>()
         var ordered: [AVAudioSessionDataSourceDescription] = []
         for source in sources.sorted(by: { rank($0) < rank($1) }) {
-            let key = "\(source.orientation?.rawValue ?? -1)-\(source.location?.rawValue ?? -1)-\(source.dataSourceName)"
+            let key = "\(source.orientation.map { "\($0)" } ?? "-")-\(source.location.map { "\($0)" } ?? "-")-\(source.dataSourceName)"
             if seen.contains(key) { continue }
             seen.insert(key)
             ordered.append(source)
@@ -832,21 +832,35 @@ enum DiskProbe {
             .volumeAvailableCapacityForImportantUsageKey,
             .volumeAvailableCapacityForOpportunisticUsageKey,
         ]
-        guard let values = try? url.resourceValues(forKeys: keys),
-              let totalRaw = values.volumeTotalCapacity else { return nil }
-        let total = Int64(totalRaw)
+        guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
+        let total = bytes(values.volumeTotalCapacity)
         guard total >= 16_000_000_000 else { return nil }
-        let important = values.volumeAvailableCapacityForImportantUsage ?? 0
-        let plain = Int64(values.volumeAvailableCapacity ?? 0)
-        let opportunistic = values.volumeAvailableCapacityForOpportunisticUsage ?? 0
+        let important = bytes(values.volumeAvailableCapacityForImportantUsage)
+        let plain = bytes(values.volumeAvailableCapacity)
+        let opportunistic = bytes(values.volumeAvailableCapacityForOpportunisticUsage)
         let free = [important, plain, opportunistic].first { $0 > 0 && $0 < total } ?? 0
-        let used = max(0, total - free)
+        let used = max(Int64(0), total - free)
         let note = "Totale \(gb(total)) · Libero \(gb(free)) · Usato \(gb(used))"
         return Report(total: total, free: free, used: used, note: note)
     }
 
     static func gb(_ bytes: Int64) -> String {
         String(format: "%.1f GB", Double(bytes) / 1_000_000_000).replacingOccurrences(of: ".", with: ",")
+    }
+
+    private static func bytes(_ value: Any?) -> Int64 {
+        var current: Any = value as Any
+        for _ in 0..<4 {
+            let mirror = Mirror(reflecting: current)
+            guard mirror.displayStyle == .optional else { break }
+            guard let child = mirror.children.first else { return 0 }
+            current = child.value
+        }
+        if let number = current as? Int64 { return number }
+        if let number = current as? Int { return Int64(number) }
+        if let number = current as? UInt64 { return Int64(clamping: number) }
+        if let number = current as? NSNumber { return number.int64Value }
+        return 0
     }
 }
 
