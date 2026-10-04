@@ -89,6 +89,7 @@ final class DiagModel: ObservableObject {
     private var depthFrames = 0
     private var depthArmed = false
     private var depthLive = false
+    private var sawUnplugged = false
     private var forceSoft = false
     private var forceHard = false
     private var openedLenses: [String] = []
@@ -331,6 +332,7 @@ final class DiagModel: ObservableObject {
         memoryUsed = ""
         gpsAccuracy = ""
         bestGps = nil
+        sawUnplugged = false
     }
 
     func beginCurrent() {
@@ -389,6 +391,7 @@ final class DiagModel: ObservableObject {
         case "power_button": startPower()
         case "mute_switch": startMute()
         case "charging": watchCharge()
+        case "wireless": watchWireless()
         case "biometrics": startBiometrics()
         case "bluetooth": startBluetooth()
         case "nfc": startNfc()
@@ -748,6 +751,57 @@ final class DiagModel: ObservableObject {
     private func chargingNow() -> Bool {
         let state = UIDevice.current.batteryState
         return state == .charging || state == .full
+    }
+
+    private func watchWireless() {
+        guard Self.hasWirelessCharge() else {
+            settle("wireless", "absent", "Questo iPhone non ha la ricarica wireless")
+            return
+        }
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        sawUnplugged = false
+        actions = [
+            Act(label: "Non carica", status: "fail", note: "Sul pad non entra in carica"),
+            Act(label: "Salta", status: "skip", note: "Nessun pad da provare"),
+        ]
+        watch(UIDevice.batteryStateDidChangeNotification) { [weak self] in
+            self?.noteWireless()
+        }
+        noteWireless()
+        armWirelessPoll()
+    }
+
+    private func noteWireless() {
+        guard still("wireless") else { return }
+        switch UIDevice.current.batteryState {
+        case .unplugged:
+            sawUnplugged = true
+            hint = "Cavo staccato. Appoggia il telefono sul pad, senza ricollegare il cavo."
+            detail = "In attesa del pad"
+        case .charging, .full:
+            if sawUnplugged {
+                settle("wireless", "pass", "In carica sul pad, a cavo staccato")
+            } else {
+                hint = "Stacca il cavo. Il pad si prova solo quando il telefono non è già in carica."
+                detail = "Stacca il cavo"
+            }
+        default:
+            hint = "Appoggia il telefono sul pad wireless."
+            detail = "In attesa"
+        }
+    }
+
+    private func armWirelessPoll() {
+        later(0.4) {
+            guard self.still("wireless") else { return }
+            self.noteWireless()
+            self.armWirelessPoll()
+        }
+    }
+
+    private static func hasWirelessCharge() -> Bool {
+        guard let major = Machine.iphoneMajor else { return true }
+        return major >= 10
     }
 
     private func startBiometrics() {

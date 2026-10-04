@@ -56,6 +56,7 @@ enum Catalog {
         Row(id: "power_button", group: "Tasti", title: "Accensione", weight: 2, critical: false),
         Row(id: "mute_switch", group: "Tasti", title: "Silenzioso", weight: 1, critical: false),
         Row(id: "charging", group: "Energia", title: "Ricarica cavo", weight: 3, critical: true),
+        Row(id: "wireless", group: "Energia", title: "Ricarica wireless", weight: 2, critical: false),
         Row(id: "biometrics", group: "Sicurezza", title: "Biometria", weight: 1, critical: false),
     ]
 

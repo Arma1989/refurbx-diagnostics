@@ -85,7 +85,8 @@ private enum GuideCopy {
         case "volume_down": return "Premi il tasto volume meno, sul fianco."
         case "power_button": return "Premi il tasto di accensione, poi riapri lo schermo."
         case "mute_switch": return "Su questo iPhone il tasto Azione non dice all'app se l'hai premuto."
-        case "charging": return "Collega il cavo. Vedo solo se è in carica, non se è wireless."
+        case "charging": return "Collega il cavo. Il test passa quando il sistema vede la carica."
+        case "wireless": return "Stacca il cavo e appoggia il telefono sul pad. Passa solo se, da staccato, torna in carica."
         case "biometrics": return "Usa il volto o l'impronta, se il telefono la chiede."
         default: return "Guarda l'esempio, poi inizia. Puoi sempre saltare."
         }
@@ -167,6 +168,8 @@ private struct DemoScene: View {
                 sideButton
             case "charging", "battery":
                 cable
+            case "wireless":
+                wirelessPad
             case "headphones":
                 earbuds
             case "memory", "identity":
@@ -371,6 +374,17 @@ private struct DemoScene: View {
             RoundedRectangle(cornerRadius: 3)
                 .fill(cyan)
                 .frame(width: 22, height: 16 + CGFloat(loop) * 28)
+        }
+    }
+
+    private var wirelessPad: some View {
+        VStack {
+            Spacer()
+            RoundedRectangle(cornerRadius: 10)
+                .fill(cyan.opacity(0.25 + loop * 0.45))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(cyan, lineWidth: 3))
+                .frame(width: 96, height: 16)
+                .padding(.bottom, 16)
         }
     }
 
