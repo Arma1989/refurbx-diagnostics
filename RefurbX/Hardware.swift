@@ -292,6 +292,13 @@ final class CameraSession: NSObject {
 final class PreviewView: UIView {
     override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
     var previewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
+
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        if newWindow == nil {
+            previewLayer.session = nil
+        }
+    }
 }
 
 struct CameraPreview: UIViewRepresentable {
@@ -305,7 +312,13 @@ struct CameraPreview: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: PreviewView, context: Context) {
-        uiView.previewLayer.session = session
+        if uiView.previewLayer.session !== session {
+            uiView.previewLayer.session = session
+        }
+    }
+
+    static func dismantleUIView(_ uiView: PreviewView, coordinator: ()) {
+        uiView.previewLayer.session = nil
     }
 }
 

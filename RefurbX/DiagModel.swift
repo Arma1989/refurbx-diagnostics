@@ -230,16 +230,32 @@ final class DiagModel: ObservableObject {
         wave += 1
         outcomes.removeAll { $0.id == id }
         outcomes.append(Outcome(id: id, status: status, note: String(note.prefix(300))))
-        cleanup()
-        guard index + 1 < Catalog.rows.count else {
-            phase = "report"
-            currentId = "report"
-            remember()
+        let cameraWasOpen = showCamera
+        actions = []
+        cleanup(releaseCamera: !cameraWasOpen)
+        let proceed = { [weak self] in
+            guard let self else { return }
+            guard self.index + 1 < Catalog.rows.count else {
+                self.phase = "report"
+                self.currentId = "report"
+                self.remember()
+                return
+            }
+            self.index += 1
+            self.remember()
+            self.enter()
+        }
+        guard cameraWasOpen else {
+            DispatchQueue.main.async { proceed() }
             return
         }
-        index += 1
-        remember()
-        DispatchQueue.main.async { self.enter() }
+        let gate = Once()
+        let go = { gate.run(proceed) }
+        DispatchQueue.main.async {
+            self.camera.setTorch(false) { _ in }
+            self.camera.stop(done: go)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { go() }
     }
 
     func shareText() -> String {
@@ -1066,7 +1082,7 @@ final class DiagModel: ObservableObject {
         observers.append(token)
     }
 
-    private func cleanup() {
+    private func cleanup(releaseCamera: Bool = true) {
         armPower = false
         showCamera = false
         face.cancel()
@@ -1079,8 +1095,10 @@ final class DiagModel: ObservableObject {
         depth.stop()
         playback?.stop()
         playback = nil
-        camera.setTorch(false) { _ in }
-        camera.stop()
+        if releaseCamera {
+            camera.setTorch(false) { _ in }
+            camera.stop()
+        }
         volumeTimer?.invalidate()
         volumeTimer = nil
         UIDevice.current.isProximityMonitoringEnabled = false
@@ -1193,4 +1211,14 @@ private struct SavedRun: Codable {
     var body: Int
     var cable: Bool
     var box: Bool
+}
+
+private final class Once {
+    private var done = false
+
+    func run(_ body: () -> Void) {
+        if done { return }
+        done = true
+        body()
+    }
 }
