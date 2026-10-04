@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>it</string>
+  <key>CFBundleDisplayName</key>
+  <string>RefurbX Diagnostics</string>
+  <key>CFBundleExecutable</key>
+  <string>$(EXECUTABLE_NAME)</string>
+  <key>CFBundleIdentifier</key>
+  <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>$(PRODUCT_NAME)</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0.1</string>
+  <key>CFBundleVersion</key>
+  <string>2</string>
+  <key>ITSAppUsesNonExemptEncryption</key>
+  <false/>
+  <key>LSRequiresIPhoneOS</key>
+  <true/>
+  <key>UILaunchScreen</key>
+  <dict/>
+  <key>UIApplicationSceneManifest</key>
+  <dict>
+    <key>UIApplicationSupportsMultipleScenes</key>
+    <false/>
+  </dict>
+  <key>UISupportedInterfaceOrientations</key>
+  <array>
+    <string>UIInterfaceOrientationPortrait</string>
+  </array>
+  <key>NSCameraUsageDescription</key>
+  <string>RefurbX apre la fotocamera solo per il test di diagnosi. Le immagini non vengono caricate.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>RefurbX registra il microfono solo per farlo riascoltare durante il test. L'audio non viene caricato.</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>RefurbX chiede la posizione solo per il test GPS. Nella scheda può comparire la precisione in metri.</string>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>RefurbX accende la ricerca Bluetooth solo per verificare che la radio parta.</string>
+  <key>NSMotionUsageDescription</key>
+  <string>RefurbX legge accelerometro e giroscopio solo durante la diagnosi.</string>
+  <key>NSFaceIDUsageDescription</key>
+  <string>RefurbX avvia il riconoscimento del volto solo per il test biometrico. L'immagine a infrarossi resta nel sistema.</string>
+</dict>
+</plist>
