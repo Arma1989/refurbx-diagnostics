@@ -29,156 +29,249 @@ enum Machine {
 }
 
 final class TonePlayer {
-    private let engine = AVAudioEngine()
-    private var node: AVAudioSourceNode?
+    private var player: AVAudioPlayer?
+    private var toneURL: URL?
+    private var earURL: URL?
 
-    func play(earpiece: Bool) {
+    func play(earpiece: Bool, pan: Float = 0) {
         stop()
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playAndRecord, mode: earpiece ? .voiceChat : .default, options: earpiece ? [] : [.defaultToSpeaker])
-        try? session.setActive(true)
-        try? session.overrideOutputAudioPort(earpiece ? .none : .speaker)
-        let sampleRate = 44100.0
-        var theta = 0.0
-        let step = 2.0 * Double.pi * 880.0 / sampleRate
-        let source = AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
-            let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            for frame in 0..<Int(frameCount) {
-                let sample = Float(sin(theta) * 0.25)
-                theta += step
-                for buffer in buffers {
-                    let pointer = buffer.mData?.assumingMemoryBound(to: Float.self)
-                    pointer?[frame] = sample
-                }
+        do {
+            if earpiece {
+                try session.setCategory(.playAndRecord, mode: .voiceChat, options: [])
+            } else {
+                try session.setCategory(.playback, mode: .default, options: [])
             }
-            return noErr
+            try session.setActive(true)
+        } catch {
+            return
         }
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-        engine.attach(source)
-        engine.connect(source, to: engine.mainMixerNode, format: format)
-        node = source
-        try? engine.start()
+        guard let url = prepareTone(sweep: !earpiece) else { return }
+        player = try? AVAudioPlayer(contentsOf: url)
+        player?.numberOfLoops = -1
+        player?.volume = 1
+        player?.pan = max(-1, min(1, pan))
+        player?.play()
     }
 
     func stop() {
-        engine.stop()
-        if let node {
-            engine.detach(node)
+        player?.stop()
+        player = nil
+    }
+
+    private func prepareTone(sweep: Bool) -> URL? {
+        if sweep, let toneURL { return toneURL }
+        if !sweep, let earURL { return earURL }
+        let rate = 44100
+        let count = rate * (sweep ? 2 : 1)
+        var samples = [Int16]()
+        samples.reserveCapacity(count)
+        var phase = 0.0
+        for index in 0..<count {
+            let freq: Double
+            if sweep {
+                let unit = Double(index) / Double(count)
+                freq = 180 + unit * 3200
+            } else {
+                freq = 520
+            }
+            phase += 2 * Double.pi * freq / Double(rate)
+            samples.append(Int16(sin(phase) * (sweep ? 14000 : 12000)))
         }
-        node = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(sweep ? "refurbx-sweep.wav" : "refurbx-ear.wav")
+        do {
+            try wav(samples: samples, rate: rate).write(to: url)
+            if sweep { toneURL = url } else { earURL = url }
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    private func wav(samples: [Int16], rate: Int) -> Data {
+        let dataSize = samples.count * 2
+        var data = Data()
+        func append(_ string: String) { data.append(contentsOf: string.utf8) }
+        func append16(_ value: UInt16) {
+            var little = value.littleEndian
+            withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
+        }
+        func append32(_ value: UInt32) {
+            var little = value.littleEndian
+            withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
+        }
+        append("RIFF")
+        append32(UInt32(36 + dataSize))
+        append("WAVE")
+        append("fmt ")
+        append32(16)
+        append16(1)
+        append16(1)
+        append32(UInt32(rate))
+        append32(UInt32(rate * 2))
+        append16(2)
+        append16(16)
+        append("data")
+        append32(UInt32(dataSize))
+        samples.withUnsafeBytes { data.append(contentsOf: $0) }
+        return data
     }
 }
 
 final class MicProbe {
-    private let engine = AVAudioEngine()
-    private var file: AVAudioFile?
-    private var tapInstalled = false
-    private let url = FileManager.default.temporaryDirectory.appendingPathComponent("refurbx-mic.caf")
+    private var recorder: AVAudioRecorder?
+    private var timer: Timer?
+    private var peak = 0.0
+    private let url = FileManager.default.temporaryDirectory.appendingPathComponent("refurbx-mic.m4a")
 
-    func record(seconds: TimeInterval, onLevel: @escaping (Int) -> Void, done: @escaping (Double, URL?) -> Void) {
+    func record(seconds: TimeInterval, source: AVAudioSessionDataSourceDescription? = nil, onLevel: @escaping (Int) -> Void, done: @escaping (Double, URL?) -> Void) {
+        stop()
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
             try session.setActive(true)
-        } catch {
-            done(0, nil)
-            return
-        }
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            done(0, nil)
-            return
-        }
-        try? FileManager.default.removeItem(at: url)
-        file = try? AVAudioFile(forWriting: url, settings: format.settings)
-        var energy = 0.0
-        var samples = 0
-        tapInstalled = true
-        input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buffer, _ in
-            try? self?.file?.write(from: buffer)
-            let channel = buffer.floatChannelData?.pointee
-            let count = Int(buffer.frameLength)
-            var sum = 0.0
-            if let channel {
-                for index in 0..<count {
-                    let value = Double(channel[index])
-                    sum += value * value
-                }
+            if let source, let builtIn = session.availableInputs?.first(where: { $0.portType == .builtInMic }) {
+                try builtIn.setPreferredDataSource(source)
+                try session.setPreferredInput(builtIn)
             }
-            energy += sum
-            samples += count
-            let rms = sqrt(sum / Double(max(count, 1)))
-            DispatchQueue.main.async { onLevel(Int(rms * 1000)) }
-        }
-        do {
-            try engine.start()
+            try? FileManager.default.removeItem(at: url)
+            let settings: [String: Any] = [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: 44100,
+                AVNumberOfChannelsKey: 1,
+            ]
+            let recorder = try AVAudioRecorder(url: url, settings: settings)
+            recorder.isMeteringEnabled = true
+            guard recorder.prepareToRecord(), recorder.record() else {
+                DispatchQueue.main.async { done(0, nil) }
+                return
+            }
+            self.recorder = recorder
         } catch {
-            removeTap()
-            done(0, nil)
+            DispatchQueue.main.async { done(0, nil) }
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
-            guard let self else { return }
-            self.removeTap()
-            if self.engine.isRunning { self.engine.stop() }
-            let rms = sqrt(energy / Double(max(samples, 1)))
-            done(rms, self.url)
+        let started = Date()
+        let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] timer in
+            guard let self, let recorder = self.recorder else {
+                timer.invalidate()
+                return
+            }
+            recorder.updateMeters()
+            let linear = pow(10, Double(recorder.averagePower(forChannel: 0)) / 20)
+            self.peak = max(self.peak, linear)
+            onLevel(Int(linear * 1000))
+            if Date().timeIntervalSince(started) >= seconds {
+                timer.invalidate()
+                self.timer = nil
+                recorder.stop()
+                done(self.peak, self.url)
+            }
         }
+        self.timer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     func stop() {
-        removeTap()
-        if engine.isRunning { engine.stop() }
-    }
-
-    private func removeTap() {
-        guard tapInstalled else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        tapInstalled = false
+        timer?.invalidate()
+        timer = nil
+        recorder?.stop()
+        recorder = nil
+        peak = 0
     }
 }
 
 final class CameraSession: NSObject {
     let session = AVCaptureSession()
     private let queue = DispatchQueue(label: "refurbx.camera")
-    private var device: AVCaptureDevice?
     private var focusObservation: NSKeyValueObservation?
+    private var lastLens: Float?
+    private var focusGeneration = 0
 
-    func start(front: Bool, onFocus: @escaping () -> Void, onError: @escaping (String) -> Void) {
+    static func backLenses() -> [AVCaptureDevice.DeviceType] {
+        [.builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTelephotoCamera].filter {
+            AVCaptureDevice.default($0, for: .video, position: .back) != nil
+        }
+    }
+
+    func start(front: Bool, lens: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, onFocus: @escaping () -> Void, onRunning: @escaping () -> Void, onError: @escaping (String) -> Void) {
+        focusGeneration += 1
+        let generation = focusGeneration
         queue.async {
+            if self.session.isRunning { self.session.stopRunning() }
             self.session.beginConfiguration()
             self.session.inputs.forEach { self.session.removeInput($0) }
             let position: AVCaptureDevice.Position = front ? .front : .back
-            guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position),
+            let wanted: AVCaptureDevice.DeviceType = front ? .builtInWideAngleCamera : lens
+            guard let camera = AVCaptureDevice.default(wanted, for: .video, position: position)
+                    ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position),
                   let input = try? AVCaptureDeviceInput(device: camera),
                   self.session.canAddInput(input) else {
                 self.session.commitConfiguration()
                 DispatchQueue.main.async { onError(front ? "Niente camera anteriore" : "Niente camera posteriore") }
                 return
             }
-            self.device = camera
             self.session.addInput(input)
-            self.session.commitConfiguration()
-            if !self.session.isRunning { self.session.startRunning() }
+            if self.session.canSetSessionPreset(.hd1280x720) {
+                self.session.sessionPreset = .hd1280x720
+            }
             if camera.isFocusModeSupported(.continuousAutoFocus) {
                 try? camera.lockForConfiguration()
                 camera.focusMode = .continuousAutoFocus
                 camera.unlockForConfiguration()
-                self.focusObservation = camera.observe(\.lensPosition, options: [.new]) { _, change in
-                    if let value = change.newValue, value > 0.02 && value < 0.98 {
-                        DispatchQueue.main.async(execute: onFocus)
+            }
+            self.session.commitConfiguration()
+            if !self.session.isRunning { self.session.startRunning() }
+            DispatchQueue.main.async(execute: onRunning)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                guard let self, self.focusGeneration == generation else { return }
+                self.lastLens = nil
+                self.focusObservation = camera.observe(\.lensPosition, options: [.new]) { [weak self] _, change in
+                    guard let value = change.newValue else { return }
+                    DispatchQueue.main.async {
+                        guard let self, self.focusGeneration == generation else { return }
+                        if let previous = self.lastLens, abs(value - previous) > 0.04 {
+                            onFocus()
+                        }
+                        self.lastLens = value
                     }
                 }
             }
         }
     }
 
-    func stop() {
+    func stop(done: (() -> Void)? = nil) {
+        focusGeneration += 1
         queue.async {
             if self.session.isRunning { self.session.stopRunning() }
-            self.focusObservation = nil
+            DispatchQueue.main.async {
+                self.focusObservation?.invalidate()
+                self.focusObservation = nil
+                done?()
+            }
+        }
+    }
+
+    func setTorch(_ on: Bool, done: @escaping (Bool) -> Void) {
+        queue.async {
+            let ok = self.applyTorch(on)
+            DispatchQueue.main.async { done(ok) }
+        }
+    }
+
+    private func applyTorch(_ on: Bool) -> Bool {
+        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back), camera.hasTorch else { return false }
+        do {
+            try camera.lockForConfiguration()
+            if on {
+                try camera.setTorchModeOn(level: AVCaptureDevice.maxAvailableTorchLevel)
+            } else {
+                camera.torchMode = .off
+            }
+            camera.unlockForConfiguration()
+            return true
+        } catch {
+            return false
         }
     }
 
@@ -193,18 +286,6 @@ final class CameraSession: NSObject {
 
     static func hasTrueDepth() -> Bool {
         AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front) != nil
-    }
-
-    func torch(_ on: Bool) -> Bool {
-        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back), camera.hasTorch else { return false }
-        do {
-            try camera.lockForConfiguration()
-            camera.torchMode = on ? .on : .off
-            camera.unlockForConfiguration()
-            return true
-        } catch {
-            return false
-        }
     }
 }
 
@@ -231,43 +312,56 @@ struct CameraPreview: UIViewRepresentable {
 final class DepthProbe: NSObject, ARSessionDelegate {
     private let session = ARSession()
     private var finished = false
+    private var token = 0
     private var onResult: ((Bool) -> Void)?
+    var onPicture: ((UIImage, Bool, Bool) -> Void)?
 
     func start(_ onResult: @escaping (Bool) -> Void) {
+        token += 1
+        finished = false
+        self.onResult = onResult
         guard ARWorldTrackingConfiguration.isSupported,
               ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) else {
-            onResult(false)
+            finish(false)
             return
         }
-        self.onResult = onResult
         session.delegate = self
         let config = ARWorldTrackingConfiguration()
         config.frameSemantics = .sceneDepth
-        session.run(config)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
-            self?.finish(false)
-        }
+        session.run(config, options: [.resetTracking, .removeExistingAnchors])
     }
 
     func stop() {
+        token += 1
         session.pause()
         onResult = nil
+        onPicture = nil
     }
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
-        if frame.sceneDepth?.depthMap != nil {
-            finish(true)
+        guard !finished, let map = frame.sceneDepth?.depthMap else { return }
+        guard let made = DepthImage.make(from: map) else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.finished else { return }
+            self.onPicture?(made.image, made.live, made.near)
         }
     }
 
+    func session(_ session: ARSession, didFailWithError error: Error) {
+        finish(false)
+    }
+
     private func finish(_ ok: Bool) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in self?.finish(ok) }
+            return
+        }
         guard !finished else { return }
         finished = true
         session.pause()
-        DispatchQueue.main.async {
-            self.onResult?(ok)
-            self.onResult = nil
-        }
+        let callback = onResult
+        onResult = nil
+        callback?(ok)
     }
 }
 
@@ -283,7 +377,7 @@ final class MotionProbe {
                 guard let data else { return }
                 let value = abs(data.rotationRate.x) + abs(data.rotationRate.y) + abs(data.rotationRate.z)
                 if first == nil { first = value; return }
-                if abs(value - (first ?? 0)) > 0.8 { changed() }
+                if abs(value - (first ?? 0)) > 0.45 { changed() }
             }
         } else {
             guard manager.isAccelerometerAvailable else { return false }
@@ -293,8 +387,38 @@ final class MotionProbe {
                 guard let data else { return }
                 let value = data.acceleration.x + data.acceleration.y + data.acceleration.z
                 if first == nil { first = value; return }
-                if abs(value - (first ?? 0)) > 0.25 { changed() }
+                if abs(value - (first ?? 0)) > 0.2 { changed() }
             }
+        }
+        return true
+    }
+
+    func follow(_ body: @escaping (CMDeviceMotion) -> Void) -> Bool {
+        guard manager.isDeviceMotionAvailable else { return false }
+        manager.deviceMotionUpdateInterval = 0.05
+        manager.startDeviceMotionUpdates(to: .main) { motion, _ in
+            if let motion { body(motion) }
+        }
+        return true
+    }
+
+    func gravity(_ body: @escaping (_ x: Double, _ y: Double) -> Void) -> Bool {
+        guard manager.isDeviceMotionAvailable else { return false }
+        manager.deviceMotionUpdateInterval = 0.05
+        manager.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: .main) { motion, _ in
+            guard let motion else { return }
+            body(motion.gravity.x, motion.gravity.y)
+        }
+        return true
+    }
+
+    func attitude(_ body: @escaping (_ roll: Double, _ pitch: Double, _ yaw: Double, _ rate: Double) -> Void) -> Bool {
+        guard manager.isDeviceMotionAvailable else { return false }
+        manager.deviceMotionUpdateInterval = 0.05
+        manager.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: .main) { motion, _ in
+            guard let motion else { return }
+            let rate = abs(motion.rotationRate.x) + abs(motion.rotationRate.y) + abs(motion.rotationRate.z)
+            body(motion.attitude.roll, motion.attitude.pitch, motion.attitude.yaw, rate)
         }
         return true
     }
@@ -302,6 +426,172 @@ final class MotionProbe {
     func stop() {
         manager.stopAccelerometerUpdates()
         manager.stopGyroUpdates()
+        manager.stopDeviceMotionUpdates()
+    }
+}
+
+enum DepthImage {
+    struct Frame {
+        let image: UIImage
+        let live: Bool
+        let near: Bool
+    }
+
+    static func make(from buffer: CVPixelBuffer) -> Frame? {
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        let width = CVPixelBufferGetWidth(buffer)
+        let height = CVPixelBufferGetHeight(buffer)
+        guard width > 1, height > 1, let base = CVPixelBufferGetBaseAddress(buffer) else { return nil }
+        let format = CVPixelBufferGetPixelFormatType(buffer)
+        let disparity = format == kCVPixelFormatType_DisparityFloat32 || format == kCVPixelFormatType_DisparityFloat16
+        let stepX = max(1, width / 96)
+        let stepY = max(1, height / 128)
+        let outW = max(1, width / stepX)
+        let outH = max(1, height / stepY)
+        var pixels = [UInt8](repeating: 198, count: outW * outH)
+        var valid = 0
+        var close = 0
+        var index = 0
+        for y in stride(from: 0, to: height, by: stepY) {
+            for x in stride(from: 0, to: width, by: stepX) {
+                let value = read(base, format: format, x: x, y: y, buffer: buffer)
+                let gray = shade(value, disparity: disparity)
+                if index < pixels.count { pixels[index] = gray }
+                if let meters = metres(value, disparity: disparity) {
+                    valid += 1
+                    if meters < 0.55 { close += 1 }
+                }
+                index += 1
+            }
+        }
+        let data = Data(pixels)
+        guard let provider = CGDataProvider(data: data as CFData),
+              let cg = CGImage(
+                width: outW,
+                height: outH,
+                bitsPerComponent: 8,
+                bitsPerPixel: 8,
+                bytesPerRow: outW,
+                space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGBitmapInfo(rawValue: 0),
+                provider: provider,
+                decode: nil,
+                shouldInterpolate: true,
+                intent: .defaultIntent
+              ) else { return nil }
+        let live = valid > 20
+        return Frame(image: UIImage(cgImage: cg), live: live, near: live && close > 8)
+    }
+
+    private static func shade(_ value: Float, disparity: Bool) -> UInt8 {
+        guard let meters = metres(value, disparity: disparity) else { return 198 }
+        let unit = min(1, max(0, (meters - 0.15) / (2.0 - 0.15)))
+        return UInt8(36 + unit * 188)
+    }
+
+    private static func metres(_ value: Float, disparity: Bool) -> Float? {
+        guard value.isFinite, value > 0 else { return nil }
+        let meters = disparity ? 1 / value : value
+        guard meters.isFinite, meters > 0.05, meters < 8 else { return nil }
+        return meters
+    }
+
+    private static func read(_ base: UnsafeMutableRawPointer, format: OSType, x: Int, y: Int, buffer: CVPixelBuffer) -> Float {
+        let rowBytes = CVPixelBufferGetBytesPerRow(buffer)
+        if format == kCVPixelFormatType_DepthFloat32 || format == kCVPixelFormatType_DisparityFloat32 {
+            let row = base.advanced(by: y * rowBytes).assumingMemoryBound(to: Float.self)
+            return row[x]
+        }
+        if format == kCVPixelFormatType_DepthFloat16 || format == kCVPixelFormatType_DisparityFloat16 {
+            let row = base.advanced(by: y * rowBytes).assumingMemoryBound(to: UInt16.self)
+            return float16to32(row[x])
+        }
+        return 0
+    }
+
+    private static func float16to32(_ bits: UInt16) -> Float {
+        let sign = (bits & 0x8000) >> 15
+        let exponent = (bits & 0x7C00) >> 10
+        let fraction = bits & 0x03FF
+        if exponent == 0 { return 0 }
+        if exponent == 31 { return sign == 1 ? -Float.infinity : Float.infinity }
+        let value = Float(fraction) / 1024 + 1
+        let scaled = ldexpf(value, Int32(exponent) - 15)
+        return sign == 1 ? -scaled : scaled
+    }
+}
+
+final class FaceTrackProbe: NSObject, ARSessionDelegate {
+    private let session = ARSession()
+    private var finished = false
+    private var token = 0
+    private var onResult: ((Bool) -> Void)?
+    var onPicture: (([CGPoint]) -> Void)?
+
+    func start(_ onResult: @escaping (Bool) -> Void) {
+        token += 1
+        let current = token
+        finished = false
+        self.onResult = onResult
+        guard ARFaceTrackingConfiguration.isSupported else {
+            finish(false)
+            return
+        }
+        session.delegate = self
+        session.run(ARFaceTrackingConfiguration(), options: [.resetTracking, .removeExistingAnchors])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
+            guard let self, self.token == current else { return }
+            self.finish(false)
+        }
+    }
+
+    func stop() {
+        token += 1
+        session.pause()
+        onResult = nil
+        onPicture = nil
+    }
+
+    func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
+        publish(anchors)
+    }
+
+    func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
+        publish(anchors)
+    }
+
+    func session(_ session: ARSession, didFailWithError error: Error) {
+        finish(false)
+    }
+
+    private func publish(_ anchors: [ARAnchor]) {
+        guard let face = anchors.compactMap({ $0 as? ARFaceAnchor }).first else { return }
+        let vertices = face.geometry.vertices
+        guard vertices.count > 100 else { return }
+        var points: [CGPoint] = []
+        points.reserveCapacity(vertices.count)
+        for vertex in vertices {
+            let x = 0.5 + CGFloat(vertex.x) / 0.20
+            let y = 0.58 - CGFloat(vertex.y) / 0.26
+            points.append(CGPoint(x: min(0.98, max(0.02, x)), y: min(0.98, max(0.02, y))))
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.onPicture?(points)
+        }
+    }
+
+    private func finish(_ ok: Bool) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in self?.finish(ok) }
+            return
+        }
+        guard !finished else { return }
+        finished = true
+        session.pause()
+        let callback = onResult
+        onResult = nil
+        callback?(ok)
     }
 }
 
@@ -317,6 +607,7 @@ final class PlaceProbe: NSObject, CLLocationManagerDelegate {
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+        manager.headingFilter = 5
     }
 
     func requestFix() {
@@ -333,6 +624,9 @@ final class PlaceProbe: NSObject, CLLocationManagerDelegate {
         mode = .idle
         manager.stopUpdatingLocation()
         manager.stopUpdatingHeading()
+        onFix = nil
+        onHeading = nil
+        onDenied = nil
     }
 
     private func begin() {
@@ -347,16 +641,19 @@ final class PlaceProbe: NSObject, CLLocationManagerDelegate {
     }
 
     private func startAuthorized() {
-        if mode == .fix { manager.requestLocation() }
+        if mode == .fix { manager.startUpdatingLocation() }
         if mode == .heading { manager.startUpdatingHeading() }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        if let location = locations.last { onFix?(location) }
+        guard mode == .fix, let location = locations.last, location.horizontalAccuracy >= 0 else { return }
+        onFix?(location)
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        _ = error
+        guard mode != .idle else { return }
+        let code = (error as NSError).code
+        if code == CLError.denied.rawValue { onDenied?() }
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -371,15 +668,14 @@ final class PlaceProbe: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        guard mode == .heading, newHeading.headingAccuracy >= 0 else { return }
         onHeading?(newHeading)
     }
 }
 
 final class RadioProbe: NSObject, CBCentralManagerDelegate {
     private var manager: CBCentralManager?
-    var onReady: (() -> Void)?
-    var onOff: (() -> Void)?
-    var onDenied: (() -> Void)?
+    var onResult: ((String, String) -> Void)?
 
     func start() {
         manager = CBCentralManager(delegate: self, queue: .main)
@@ -393,12 +689,13 @@ final class RadioProbe: NSObject, CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         switch central.state {
         case .poweredOn:
-            central.scanForPeripherals(withServices: nil)
-            onReady?()
+            onResult?("pass", "Bluetooth acceso")
         case .poweredOff:
-            onOff?()
+            onResult?("skip", "Bluetooth spento")
         case .unauthorized:
-            onDenied?()
+            onResult?("skip", "Permesso Bluetooth negato")
+        case .unsupported:
+            onResult?("absent", "Niente Bluetooth")
         default:
             break
         }
@@ -406,18 +703,36 @@ final class RadioProbe: NSObject, CBCentralManagerDelegate {
 }
 
 enum NetworkProbe {
-    static func isOnline() -> Bool {
+    static func check(_ done: @escaping (Bool, String) -> Void) {
         let monitor = NWPathMonitor()
-        let semaphore = DispatchSemaphore(value: 0)
-        var online = false
+        let gate = Gate()
         monitor.pathUpdateHandler = { path in
-            online = path.status == .satisfied
-            semaphore.signal()
-            monitor.cancel()
+            gate.run {
+                let online = path.status == .satisfied
+                let note: String
+                if !online {
+                    note = "Nessuna rete internet"
+                } else if path.usesInterfaceType(.wifi) {
+                    note = "Wi-Fi attivo"
+                } else if path.usesInterfaceType(.cellular) {
+                    note = "Rete cellulare attiva"
+                } else {
+                    note = "Rete attiva"
+                }
+                monitor.cancel()
+                DispatchQueue.main.async { done(online, note) }
+            }
         }
         monitor.start(queue: DispatchQueue(label: "refurbx.net"))
-        _ = semaphore.wait(timeout: .now() + 2)
-        return online
+    }
+}
+
+final class Gate {
+    private var used = false
+    func run(_ block: () -> Void) {
+        if used { return }
+        used = true
+        block()
     }
 }
 
@@ -439,9 +754,12 @@ enum DiskProbe {
     }
 }
 
-enum FaceProbe {
-    static func run(done: @escaping (String, String) -> Void) {
+final class FaceProbe {
+    private var context: LAContext?
+
+    func run(done: @escaping (String, String) -> Void) {
         let context = LAContext()
+        self.context = context
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
             let code = error.flatMap { LAError.Code(rawValue: $0.code) }
@@ -460,7 +778,7 @@ enum FaceProbe {
                     done("pass", "Riconoscimento accettato. L'immagine a infrarossi resta nel sistema.")
                 } else {
                     let code = (evalError as NSError?)?.code
-                    if code == LAError.userCancel.rawValue || code == LAError.appCancel.rawValue || code == LAError.systemCancel.rawValue {
+                    if code == LAError.userCancel.rawValue || code == LAError.appCancel.rawValue || code == LAError.systemCancel.rawValue || code == LAError.biometryLockout.rawValue {
                         done("skip", "Riconoscimento annullato")
                     } else {
                         done("fail", evalError?.localizedDescription ?? "Riconoscimento rifiutato")
@@ -468,6 +786,11 @@ enum FaceProbe {
                 }
             }
         }
+    }
+
+    func cancel() {
+        context?.invalidate()
+        context = nil
     }
 }
 

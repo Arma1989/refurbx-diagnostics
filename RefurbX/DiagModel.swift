@@ -1,5 +1,6 @@
+import ARKit
+import AudioToolbox
 import AVFoundation
-import CoreLocation
 import SwiftUI
 import UIKit
 
@@ -21,46 +22,205 @@ final class DiagModel: ObservableObject {
     @Published var actions: [Act] = []
     @Published var outcomes: [Outcome] = []
     @Published var fingers = 0
-    @Published var pressure = "Premi lo schermo"
+    @Published var dotX: CGFloat = 0
+    @Published var dotY: CGFloat = 0
+    @Published var edgeLeft = false
+    @Published var edgeRight = false
+    @Published var edgeTop = false
+    @Published var edgeBottom = false
+    @Published var gyroRest = false
+    @Published var gyroTilt = false
+    @Published var gyroPitch = false
+    @Published var gyroYaw = false
+    @Published var compassMarks: Set<Int> = []
+    @Published var heading: Double = 0
+    @Published var proximityLit = false
+    @Published var depthShot: UIImage?
+    @Published var lenses: [AVCaptureDevice.DeviceType] = []
+    @Published var lens: AVCaptureDevice.DeviceType = .builtInWideAngleCamera
+    @Published var lensName = ""
+    @Published var lookGlass = 0
+    @Published var lookBack = 0
+    @Published var lookBody = 0
+    @Published var withCable = false
+    @Published var withBox = false
+    @Published var forceUnit: CGFloat = 0
+    @Published var canResume = false
+    @Published var facePoints: [CGPoint] = []
+    @Published var micSpot = ""
+    @Published var micLevel = 0
+    @Published var audioSpot = ""
 
     let camera = CameraSession()
+
+    init() {
+        canResume = Self.loadRun() != nil
+    }
     private let tone = TonePlayer()
     private let mic = MicProbe()
     private let motion = MotionProbe()
     private let place = PlaceProbe()
     private let radio = RadioProbe()
     private let depth = DepthProbe()
+    private let faceTrack = FaceTrackProbe()
+    private let face = FaceProbe()
     private var settled = false
     private var wave = 0
+    private var sawLock = false
     private var sawBackground = false
     private var armPower = false
-    private var volumeStart: Float = -1
+    private var volumePrevious: Float = -1
     private var volumeTimer: Timer?
     private var playback: AVAudioPlayer?
     private var observers: [NSObjectProtocol] = []
+    private var micQueue: [AVAudioSessionDataSourceDescription] = []
+    private var micCursor = 0
+    private var micLines: [String] = []
+    private var micBad = false
+    private var micLabel = "Microfono"
+    private var micToken = 0
+    private var faceArmed = false
+    private var depthFrames = 0
+    private var depthArmed = false
+    private var depthLive = false
+    private var forceSoft = false
+    private var forceHard = false
+    private var openedLenses: [String] = []
 
     func begin() {
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        outcomes = []
+        lookGlass = 0
+        lookBack = 0
+        lookBody = 0
+        withCable = false
+        withBox = false
         index = 0
+        Self.clearRun()
+        canResume = false
         enter()
     }
+
+    func resume() {
+        guard let saved = Self.loadRun() else {
+            begin()
+            return
+        }
+        outcomes = saved.items.map { Outcome(id: $0.id, status: $0.status, note: $0.note) }
+        lookGlass = saved.glass
+        lookBack = saved.back
+        lookBody = saved.body
+        withCable = saved.cable
+        withBox = saved.box
+        index = min(max(0, saved.index), Catalog.rows.count - 1)
+        if saved.phase == "report" {
+            cleanup()
+            phase = "report"
+            currentId = "report"
+            return
+        }
+        enter()
+    }
+
+    func restart() {
+        cleanup()
+        Self.clearRun()
+        canResume = false
+        phase = "intro"
+        currentId = ""
+        index = -1
+        outcomes = []
+        actions = []
+        hint = ""
+        detail = ""
+    }
+
+    func gradeGlass(_ value: Int) { lookGlass = value; remember() }
+    func gradeBack(_ value: Int) { lookBack = value; remember() }
+    func gradeBody(_ value: Int) { lookBody = value; remember() }
+    func setCable(_ on: Bool) { withCable = on; remember() }
+    func setBox(_ on: Bool) { withBox = on; remember() }
 
     func onAction(_ act: Act) {
         switch act.status {
         case "replay-speaker":
-            tone.play(earpiece: false)
+            tone.play(earpiece: false, pan: 0)
         case "replay-ear":
             tone.play(earpiece: true)
+        case "replay-vibration":
+            pulseVibration()
+        case "replay-mic":
+            playback?.currentTime = 0
+            playback?.play()
+        case "replay-flash":
+            camera.setTorch(false) { _ in
+                self.camera.setTorch(true) { _ in }
+            }
+        case "replay-mute":
+            AudioServicesPlaySystemSound(1104)
+        case "camera-pass":
+            let note = currentId == "camera_front"
+                ? "Immagine anteriore confermata"
+                : "Immagine posteriore confermata · \(openedLenses.joined(separator: ", "))"
+            settle(currentId, "pass", note)
+        case "truedepth-retry":
+            facePoints = []
+            faceArmed = false
+            hint = "Guarda lo schermo. Il volto compare in bianco su nero solo se viene seguito. L'immagine a infrarossi resta nel sistema."
+            actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+            armFace()
+        case "lidar-ok":
+            guard depthLive else {
+                hint = "La mappa non è ancora arrivata. Avvicina un oggetto: deve scurirsi."
+                return
+            }
+            settle("lidar", "pass", "LiDAR: il vicino è più scuro del fondo")
+        case "mic-ok", "mic-bad":
+            if act.status == "mic-bad" { micBad = true }
+            micLines.append("\(micLabel) \(act.status == "mic-bad" ? "non si sente" : "si sente")")
+            advanceMic()
         default:
             settle(currentId, act.status, act.note)
         }
     }
 
     func onScenePhase(_ phase: ScenePhase) {
-        guard armPower, currentId == "power_button" else { return }
-        if phase == .background || phase == .inactive { sawBackground = true }
-        if phase == .active && sawBackground {
+        guard armPower, currentId == "power_button", !settled else { return }
+        if phase == .background { sawBackground = true }
+        if phase == .active && (sawLock || sawBackground) {
             armPower = false
             settle("power_button", "pass", "Schermo spento e riacceso")
+        }
+    }
+
+    func skipCurrent() {
+        settle(currentId, "skip", "Non eseguito")
+    }
+
+    func useLens(_ next: AVCaptureDevice.DeviceType) {
+        lens = next
+        lensName = Self.lensTitle(next)
+        guard currentId == "camera_back" || currentId == "autofocus" else { return }
+        if !openedLenses.contains(lensName) { openedLenses.append(lensName) }
+        detail = openedLenses.joined(separator: " · ")
+        camera.start(front: false, lens: next, onFocus: {}, onRunning: {}, onError: { message in
+            self.detail = message
+        })
+    }
+
+    func touchProgress(_ done: Int, _ total: Int) {
+        detail = "\(done) di \(total)"
+    }
+
+    func noteForce(_ force: CGFloat, max possible: CGFloat) {
+        guard still("force"), possible > 1 else { return }
+        let unit = min(1, max(0, force / possible))
+        forceUnit = unit
+        detail = "Pressione \(Int((unit * 100).rounded()))"
+        if unit > 0.08 && unit < 0.45 { forceSoft = true }
+        if unit >= 0.75 { forceHard = true }
+        if forceSoft && forceHard {
+            settle("force", "pass", "Pressione leggera e forte rilevate")
         }
     }
 
@@ -68,28 +228,36 @@ final class DiagModel: ObservableObject {
         guard !settled, currentId == id else { return }
         settled = true
         wave += 1
+        outcomes.removeAll { $0.id == id }
         outcomes.append(Outcome(id: id, status: status, note: String(note.prefix(300))))
         cleanup()
         guard index + 1 < Catalog.rows.count else {
             phase = "report"
             currentId = "report"
+            remember()
             return
         }
         index += 1
+        remember()
         DispatchQueue.main.async { self.enter() }
     }
 
     func shareText() -> String {
         let mark = gradeOf(outcomes)
+        let model = Machine.identifier
         var lines = [
             "RefurbX Diagnostics",
-            "\(UIDevice.current.model) \(UIDevice.current.systemVersion)",
+            "\(model) · iOS \(UIDevice.current.systemVersion)",
             "Grado \(mark.letter) · \(mark.label) · \(mark.score)/100",
+            "Vetro \(lookGlass)/5 · Retro \(lookBack)/5 · Scocca \(lookBody)/5",
+            "Cavo \(withCable ? "sì" : "no") · Scatola \(withBox ? "sì" : "no")",
             "",
         ]
-        for item in outcomes {
-            lines.append("\(Catalog.title(item.id)): \(statusIt(item.status))")
-            if !item.note.isEmpty { lines.append(item.note) }
+        for row in Catalog.rows {
+            let item = outcomes.first { $0.id == row.id }
+            let status = item?.status ?? "skip"
+            lines.append("\(row.title): \(statusIt(status))")
+            if let note = item?.note, !note.isEmpty { lines.append(note) }
         }
         let text = lines.joined(separator: "\n")
         return text.count > 3500 ? String(text.prefix(3480)) + "…" : text
@@ -101,99 +269,126 @@ final class DiagModel: ObservableObject {
         currentId = row.id
         settled = false
         phase = "run"
+        remember()
         hint = ""
         detail = ""
         actions = []
         showCamera = false
         fingers = 0
+        proximityLit = false
+        depthShot = nil
+        lensName = ""
+        openedLenses = []
+        forceUnit = 0
+        forceSoft = false
+        forceHard = false
+        edgeLeft = false
+        edgeRight = false
+        edgeTop = false
+        edgeBottom = false
+        gyroRest = false
+        gyroTilt = false
+        gyroPitch = false
+        gyroYaw = false
+        dotX = 0
+        dotY = 0
+        facePoints = []
+        faceArmed = false
+        depthFrames = 0
+        depthArmed = false
+        depthLive = false
+        micSpot = ""
+        micLevel = 0
+        audioSpot = ""
         switch row.id {
         case "identity": readIdentity()
         case "battery": readBattery()
         case "network": readNetwork()
-        case "display": hint = "Tocca lo schermo per passare di colore."
+        case "display": hint = "Tocca lo schermo per passare di colore. Poi conferma se è uniforme."
         case "touch":
-            hint = "Tocca ogni cella. Una zona che resta scura è morta."
-            actions = [Act(label: "Zona morta", status: "fail", note: "Area del touch non risponde"), Act(label: "Salta", status: "skip", note: "Non eseguito")]
+            hint = "Trascina il dito su tutte le celle, anche i bordi. Una cella spenta è una zona morta."
+            actions = [
+                Act(label: "Zona morta", status: "fail", note: "Una zona del touch non risponde"),
+                Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            ]
         case "multitouch":
-            hint = "Appoggia almeno due dita insieme."
-            actions = [Act(label: "Non legge due dita", status: "fail", note: "Multi-touch assente"), Act(label: "Salta", status: "skip", note: "Non eseguito")]
-        case "speaker":
-            tone.play(earpiece: false)
-            hint = "Ascolta la nota dall'altoparlante. Non la segno io."
-            actions = confirm("Si sente chiara", "Altoparlante confermato", "Distorta o muta", "Altoparlante non accettato", replay: "replay-speaker")
-        case "microphone": recordMic()
+            hint = "Appoggia due dita insieme. Il numero deve arrivare almeno a 2."
+            actions = [
+                Act(label: "Non legge più dita", status: "fail", note: "Multi-touch incompleto"),
+                Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            ]
+        case "speaker": startSpeaker()
+        case "microphone": afterCamera { self.recordMic() }
         case "vibration":
-            vibratePhone()
-            hint = "Deve vibrare adesso."
-            actions = confirm("L'ho sentita", "Vibrazione sentita", "Non vibra", "Nessuna vibrazione", replay: nil)
+            pulseVibration()
+            hint = "Il telefono deve vibrare tre volte. Conferma solo se lo senti in mano."
+            actions = [
+                Act(label: "L'ho sentita", status: "pass", note: "Vibrazione sentita"),
+                Act(label: "Non vibra", status: "fail", note: "Motore di vibrazione fermo"),
+                Act(label: "Ripeti", status: "replay-vibration", note: ""),
+                Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            ]
         case "earpiece":
+            audioSpot = "ear"
             tone.play(earpiece: true)
-            hint = "Avvicina l'orecchio alla capsula in alto."
-            actions = confirm("Si sente in capsula", "Capsula confermata", "Non si sente", "Capsula muta", replay: "replay-ear")
+            hint = "Conferma a mano. Avvicina l'orecchio alla capsula in alto, segnata sul disegno. Il suono non deve uscire dal basso."
+            actions = [
+                Act(label: "Passa", status: "pass", note: "Capsula in alto confermata a mano"),
+                Act(label: "Fallito", status: "fail", note: "Capsula muta o audio dal basso"),
+                Act(label: "Risenti", status: "replay-ear", note: ""),
+                Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            ]
         case "camera_back": openCamera(front: false)
         case "camera_front": openCamera(front: true)
-        case "accelerometer": watchMotion(gyro: false, id: "accelerometer", absent: "Niente accelerometro", prompt: "Inclina il telefono.")
-        case "gyroscope": watchMotion(gyro: true, id: "gyroscope", absent: "Niente giroscopio", prompt: "Ruota il telefono di scatto.")
+        case "accelerometer": startAccel()
+        case "gyroscope": startGyro()
         case "gps": startGps()
-        case "volume_up", "volume_down": watchVolume(up: row.id == "volume_up")
-        case "power_button":
-            armPower = true
-            sawBackground = false
-            hint = "Premi il tasto di accensione. Lo schermo si spegne: riaccendilo."
-            actions = [Act(label: "Non risponde", status: "fail", note: "Tasto di accensione fermo"), Act(label: "Salta", status: "skip", note: "Non eseguito")]
-        case "mute_switch":
-            if let major = Machine.iphoneMajor, major >= 16 {
-                settle("mute_switch", "absent", "Questo iPhone ha il tasto Azione, non l'interruttore del silenzioso")
-            } else {
-                settle("mute_switch", "absent", "iOS non consegna lo stato dell'interruttore silenzioso alle app")
-            }
+        case "volume_up": watchVolume(up: true)
+        case "volume_down": watchVolume(up: false)
+        case "power_button": startPower()
+        case "mute_switch": startMute()
         case "charging": watchCharge()
-        case "biometrics":
-            hint = "Usa il volto o l'impronta."
-            FaceProbe.run { [weak self] status, note in self?.settle("biometrics", status, note) }
+        case "biometrics": startBiometrics()
         case "bluetooth": startBluetooth()
         case "nfc":
             settle("nfc", "skip", "La lettura NFC si attiva dal portale Apple. Senza quel permesso la salto.")
         case "flash": startFlash()
         case "autofocus": startAutofocus()
-        case "truedepth":
-            if CameraSession.hasTrueDepth() {
-                settle("truedepth", "pass", "Camera TrueDepth presente. L'immagine a infrarossi resta nel sistema.")
-            } else {
-                settle("truedepth", "absent", "Niente camera TrueDepth")
-            }
+        case "truedepth": startTrueDepth()
         case "lidar": startDepth()
-        case "memory": settleSoon("memory", "pass", DiskProbe.note())
+        case "memory": readMemory()
         case "proximity": watchProximity()
-        case "light": settle("light", "absent", "iOS non consegna il sensore di luce alle app")
+        case "light":
+            settle("light", "absent", "iOS non consegna il sensore di luce alle app")
         case "compass": startCompass()
         case "headphones": watchHeadphones()
         case "call":
+            audioSpot = "ear"
             tone.play(earpiece: true)
-            hint = "Tieni il telefono come in chiamata. La nota deve uscire dalla capsula."
-            actions = confirm("Si sente in capsula", "Capsula di chiamata confermata", "Non si sente", "Chiamata non udibile", replay: "replay-ear")
-        case "force":
-            hint = "Premi piano e poi forte. Se la pressione non cambia, questo schermo non la misura."
-            actions = [Act(label: "La pressione non varia", status: "absent", note: "Lo schermo non riporta la pressione"), Act(label: "Salta", status: "skip", note: "Non eseguito")]
+            hint = "Conferma a mano. Tienilo come in chiamata: la nota deve uscire solo dalla capsula in alto, non dal vivavoce in basso."
+            actions = [
+                Act(label: "Passa", status: "pass", note: "Capsula di chiamata confermata a mano"),
+                Act(label: "Fallito", status: "fail", note: "In chiamata l'audio non resta in capsula"),
+                Act(label: "Risenti", status: "replay-ear", note: ""),
+                Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            ]
+        case "force": startForce()
         case "stylus":
-            hint = "L'iPhone non usa la penna. Se arriva un tratto di Apple Pencil, lo segno."
-            actions = [Act(label: "Non ha la penna", status: "absent", note: "Nessun tratto di penna"), Act(label: "Salta", status: "skip", note: "Non eseguito")]
+            settle("stylus", "absent", "L'iPhone non riceve la Apple Pencil")
         default:
             settle(row.id, "skip", "Test non eseguito")
         }
     }
 
-    private func confirm(_ pass: String, _ passNote: String, _ fail: String, _ failNote: String, replay: String?) -> [Act] {
-        var items = [Act(label: pass, status: "pass", note: passNote), Act(label: fail, status: "fail", note: failNote)]
-        if let replay { items.append(Act(label: "Risenti", status: replay, note: "")) }
-        items.append(Act(label: "Salta", status: "skip", note: "Non eseguito"))
-        return items
+    private func show(_ note: String) {
+        detail = note
+        hint = "Lettura dal telefono"
     }
 
     private func settleSoon(_ id: String, _ status: String, _ note: String) {
-        detail = note
-        hint = "Lettura dal telefono"
-        later(0.45) { self.settle(id, status, note) }
+        show(note)
+        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        later(0.6) { self.settle(id, status, note) }
     }
 
     private func later(_ seconds: Double, _ block: @escaping () -> Void) {
@@ -203,20 +398,33 @@ final class DiagModel: ObservableObject {
         }
     }
 
+    private func still(_ id: String) -> Bool {
+        currentId == id && !settled
+    }
+
+    private func afterCamera(_ block: @escaping () -> Void) {
+        camera.stop(done: block)
+    }
+
     private func readIdentity() {
         let model = Machine.identifier
         let os = "iOS \(UIDevice.current.systemVersion)"
-        let screen = "\(Int(UIScreen.main.bounds.width))×\(Int(UIScreen.main.bounds.height))"
-        settleSoon("identity", "pass", "\(model) · \(os) · \(screen)")
+        let scale = UIScreen.main.scale
+        let points = "\(Int(UIScreen.main.bounds.width))×\(Int(UIScreen.main.bounds.height))"
+        let pixels = "\(Int(UIScreen.main.bounds.width * scale))×\(Int(UIScreen.main.bounds.height * scale))"
+        let note = "\(model) · \(os) · \(points) pt · \(pixels) px"
+        settleSoon("identity", "pass", note)
     }
 
     private func readBattery() {
         UIDevice.current.isBatteryMonitoringEnabled = true
+        hint = "Leggo la percentuale."
         if let note = batteryNote() {
             settleSoon("battery", "pass", note)
             return
         }
         later(1.2) {
+            guard self.still("battery") else { return }
             if let note = self.batteryNote() {
                 self.settle("battery", "pass", note)
             } else {
@@ -229,66 +437,201 @@ final class DiagModel: ObservableObject {
         let level = UIDevice.current.batteryLevel
         guard level >= 0 else { return nil }
         let percent = Int((level * 100).rounded())
-        return "\(percent)%. Cicli e salute celle non escono da un'app di terzi."
+        let state: String
+        switch UIDevice.current.batteryState {
+        case .charging: state = "in carica"
+        case .full: state = "carica"
+        case .unplugged: state = "non in carica"
+        default: state = "stato sconosciuto"
+        }
+        return "\(percent)%, \(state). Cicli e salute celle non escono da un'app di terzi."
+    }
+
+    private func readMemory() {
+        let note = DiskProbe.note()
+        if note == "Capacità non letta" {
+            settleSoon("memory", "fail", note)
+        } else {
+            settleSoon("memory", "pass", note)
+        }
     }
 
     private func readNetwork() {
-        if NetworkProbe.isOnline() {
-            settleSoon("network", "pass", "Rete attiva")
-        } else {
-            settle("network", "fail", "Nessuna rete internet")
+        hint = "Controllo la rete."
+        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        NetworkProbe.check { [weak self] online, note in
+            guard let self, self.still("network") else { return }
+            self.settle("network", online ? "pass" : "fail", note)
+        }
+        later(6) {
+            if self.still("network") { self.settle("network", "fail", "Nessuna rete internet") }
         }
     }
 
-    private func watchMotion(gyro: Bool, id: String, absent: String, prompt: String) {
-        hint = prompt
-        actions = [Act(label: "Non risponde", status: "fail", note: "Nessun cambiamento"), Act(label: "Salta", status: "skip", note: "Non eseguito")]
-        let started = motion.watch(gyro: gyro) { [weak self] in
-            self?.settle(id, "pass", "Valore cambiato")
+    private func startSpeaker() {
+        audioSpot = "speaker"
+        tone.play(earpiece: false, pan: 0)
+        hint = "Conferma a mano. Stacca le cuffie: la nota sale dall'altoparlante in basso, segnato sul disegno. Deve essere chiara, senza crepitii."
+        actions = [
+            Act(label: "Passa", status: "pass", note: "Altoparlante in basso confermato a mano"),
+            Act(label: "Fallito", status: "fail", note: "Altoparlante assente o distorto"),
+            Act(label: "Risenti", status: "replay-speaker", note: ""),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
+    }
+
+    private func startAccel() {
+        hint = "Inclina il telefono finché i quattro bordi diventano verdi."
+        actions = [
+            Act(label: "Non si muove", status: "fail", note: "L'accelerometro non cambia"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
+        let started = motion.gravity { [weak self] x, y in
+            guard let self, self.still("accelerometer") else { return }
+            self.dotX = CGFloat(max(-1, min(1, x)))
+            self.dotY = CGFloat(max(-1, min(1, y)))
+            if x < -0.55 { self.edgeLeft = true }
+            if x > 0.55 { self.edgeRight = true }
+            if y < -0.55 { self.edgeTop = true }
+            if y > 0.55 { self.edgeBottom = true }
+            let done = [self.edgeLeft, self.edgeRight, self.edgeTop, self.edgeBottom].filter { $0 }.count
+            self.detail = "\(done) di 4 lati"
+            if done == 4 {
+                self.settle("accelerometer", "pass", "Quattro inclinazioni rilevate")
+            }
         }
-        if !started { settle(id, "absent", absent) }
+        if !started {
+            settle("accelerometer", "absent", "Niente accelerometro")
+        }
+    }
+
+    private func startGyro() {
+        hint = "Tienilo fermo un attimo, poi ruotalo di lato, avanti e intorno a te."
+        actions = [
+            Act(label: "Non ruota", status: "fail", note: "Il giroscopio non cambia"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
+        var origin: (Double, Double, Double)?
+        var stillSamples = 0
+        let started = motion.attitude { [weak self] roll, pitch, yaw, rate in
+            guard let self, self.still("gyroscope") else { return }
+            if origin == nil {
+                origin = (roll, pitch, yaw)
+                return
+            }
+            if rate < 0.25 {
+                stillSamples += 1
+                if stillSamples > 8 { self.gyroRest = true }
+            } else {
+                stillSamples = 0
+            }
+            let base = origin ?? (0, 0, 0)
+            if abs(roll - base.0) > 0.45 { self.gyroTilt = true }
+            if abs(pitch - base.1) > 0.45 { self.gyroPitch = true }
+            if Self.angleGap(yaw, base.2) > 0.6 { self.gyroYaw = true }
+            if self.gyroRest && self.gyroTilt && self.gyroPitch && self.gyroYaw {
+                self.settle("gyroscope", "pass", "Fermo, rollio, beccheggio e imbardata rilevati")
+            }
+        }
+        if !started {
+            settle("gyroscope", "absent", "Niente giroscopio")
+        }
     }
 
     private func startGps() {
-        hint = "Cerco il fix. In negozio può non arrivare: in quel caso si salta."
-        actions = [Act(label: "Salta", status: "skip", note: "Nessun fix GPS")]
+        hint = "Cerco il fix. In negozio può non arrivare: in quel caso salta."
+        actions = [
+            Act(label: "Nessun fix", status: "skip", note: "Nessun fix in negozio"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
         place.onFix = { [weak self] location in
             let meters = max(0, Int(location.horizontalAccuracy.rounded()))
-            self?.settle("gps", "pass", "Fix ±\(meters) m")
+            let line = String(format: "Precisione ±%d m", meters)
+            self?.detail = line
+            self?.settle("gps", "pass", line)
         }
         place.onDenied = { [weak self] in
             self?.settle("gps", "skip", "Permesso posizione negato")
         }
         place.requestFix()
-        later(20) { if self.currentId == "gps" && !self.settled { self.settle("gps", "skip", "Nessun fix in tempo") } }
+        later(25) { if self.still("gps") { self.settle("gps", "skip", "Nessun fix in tempo") } }
     }
 
     private func watchVolume(up: Bool) {
         let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.ambient, mode: .default, options: [])
         try? session.setActive(true)
-        volumeStart = session.outputVolume
-        hint = up ? "Premi il tasto volume su." : "Premi il tasto volume giù."
+        volumePrevious = session.outputVolume
         let id = up ? "volume_up" : "volume_down"
-        actions = [Act(label: "Non risponde", status: "fail", note: up ? "Volume su fermo" : "Volume giù fermo"), Act(label: "Salta", status: "skip", note: "Non eseguito")]
-        volumeTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+        if up && volumePrevious > 0.95 {
+            hint = "Il volume è già al massimo. Premi volume giù, poi di nuovo volume su."
+        } else if !up && volumePrevious < 0.05 {
+            hint = "Il volume è già al minimo. Premi volume su, poi di nuovo volume giù."
+        } else {
+            hint = up ? "Premi il tasto volume su. La barra di sistema deve salire." : "Premi il tasto volume giù. La barra di sistema deve scendere."
+        }
+        actions = [
+            Act(label: "Non risponde", status: "fail", note: up ? "Volume su fermo" : "Volume giù fermo"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
+        let timer = Timer(timeInterval: 0.15, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.still(id) else { return }
                 let now = session.outputVolume
-                if self.volumeStart >= 0 && abs(now - self.volumeStart) > 0.01 {
-                    self.settle(id, "pass", up ? "Volume su ricevuto" : "Volume giù ricevuto")
+                if self.volumePrevious >= 0 {
+                    if up && now > self.volumePrevious + 0.01 {
+                        self.settle(id, "pass", "Volume su ricevuto")
+                    } else if !up && now < self.volumePrevious - 0.01 {
+                        self.settle(id, "pass", "Volume giù ricevuto")
+                    }
                 }
+                self.volumePrevious = now
             }
         }
+        volumeTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func startPower() {
+        armPower = true
+        sawLock = false
+        sawBackground = false
+        hint = "Premi il tasto laterale finché lo schermo si spegne, poi riaccendilo e torna nell'app."
+        watch(UIApplication.protectedDataWillBecomeUnavailableNotification) { [weak self] in
+            self?.sawLock = true
+        }
+        actions = [
+            Act(label: "Non spegne", status: "fail", note: "Il tasto laterale non spegne lo schermo"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
+    }
+
+    private func startMute() {
+        guard Self.hasRingSwitch() else {
+            settle("mute_switch", "absent", "Questo modello ha il tasto Azione, non l'interruttore silenzioso")
+            return
+        }
+        hint = "Porta l'interruttore su Suoneria e ascolta il clic. Poi su Silenzioso: il clic di sistema non deve sentirsi. La nota musicale, se parte, non segue quell'interruttore."
+        actions = [
+            Act(label: "Suoneria e silenzioso ok", status: "pass", note: "Suoneria e silenzioso confermati dall'operatore"),
+            Act(label: "Non commuta", status: "fail", note: "L'interruttore non cambia il clic di sistema"),
+            Act(label: "Ascolta il clic", status: "replay-mute", note: ""),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
+        AudioServicesPlaySystemSound(1104)
     }
 
     private func watchCharge() {
         UIDevice.current.isBatteryMonitoringEnabled = true
+        actions = [
+            Act(label: "Non entra in carica", status: "fail", note: "Il cavo non fa entrare in carica"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
         if chargingNow() {
-            settle("charging", "pass", "Il sistema vede la carica")
+            settleSoon("charging", "pass", "Il sistema vede la carica")
             return
         }
-        hint = "Collega il cavo di ricarica."
-        actions = [Act(label: "Non carica", status: "fail", note: "Non entra in carica"), Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        hint = "Collega il cavo. Se il sistema vede la carica, il test prosegue da solo."
         watch(UIDevice.batteryStateDidChangeNotification) { [weak self] in
             if self?.chargingNow() == true { self?.settle("charging", "pass", "Il sistema vede la carica") }
         }
@@ -299,34 +642,74 @@ final class DiagModel: ObservableObject {
         return state == .charging || state == .full
     }
 
+    private func startBiometrics() {
+        hint = "Usa il volto o l'impronta. Se la richiesta non compare, salta."
+        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        face.run { [weak self] status, note in
+            self?.settle("biometrics", status, note)
+        }
+        later(25) {
+            guard self.still("biometrics") else { return }
+            self.hint = "Il riconoscimento non ha risposto. Salta e vai avanti."
+        }
+    }
+
     private func startBluetooth() {
-        hint = "Avvio la ricerca Bluetooth."
-        radio.onReady = { [weak self] in self?.settle("bluetooth", "pass", "Scansione Bluetooth avviata") }
-        radio.onOff = { [weak self] in self?.settle("bluetooth", "skip", "Bluetooth spento") }
-        radio.onDenied = { [weak self] in self?.settle("bluetooth", "skip", "Permesso Bluetooth negato") }
+        hint = "Controllo che il Bluetooth si accenda. Se compare la richiesta, consenti."
+        actions = [
+            Act(label: "Non si accende", status: "fail", note: "Bluetooth spento o non disponibile"),
+            Act(label: "Salta", status: "skip", note: "Bluetooth non verificato"),
+        ]
+        radio.onResult = { [weak self] status, note in
+            self?.settle("bluetooth", status, note)
+        }
         radio.start()
+        later(20) {
+            if self.still("bluetooth") { self.settle("bluetooth", "skip", "Bluetooth non ha risposto") }
+        }
     }
 
     private func openCamera(front: Bool) {
         let id = front ? "camera_front" : "camera_back"
+        if !front {
+            lenses = CameraSession.backLenses()
+            lens = lenses.contains(.builtInWideAngleCamera) ? .builtInWideAngleCamera : (lenses.first ?? .builtInWideAngleCamera)
+            lensName = Self.lensTitle(lens)
+            openedLenses = [lensName]
+        }
+        hint = "Apro la fotocamera. Se compare la richiesta, consenti."
+        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         AVCaptureDevice.requestAccess(for: .video) { granted in
             DispatchQueue.main.async {
-                guard self.currentId == id else { return }
+                guard self.still(id) else { return }
                 guard granted else {
                     self.settle(id, "skip", "Permesso fotocamera negato")
                     return
                 }
                 self.showCamera = true
-                self.hint = "Guarda l'immagine. Non segno io se è nitida."
-                self.actions = [
-                    Act(label: "Immagine ok", status: "pass", note: "Immagine confermata"),
-                    Act(label: "Immagine difettosa", status: "fail", note: "Immagine non accettata"),
-                    Act(label: "Salta", status: "skip", note: "Non eseguito"),
-                ]
-                self.camera.start(front: front, onFocus: {}, onError: { message in
-                    DispatchQueue.main.async { self.settle(id, "fail", message) }
+                self.camera.start(front: front, lens: self.lens, onFocus: {}, onRunning: {
+                    guard self.still(id) else { return }
+                    self.hint = front
+                        ? "Guarda il volto. Conferma solo se l'immagine è pulita."
+                        : "Cambia obiettivo se ce n'è più di uno. Conferma solo se l'immagine è nitida."
+                    self.detail = front ? "" : self.openedLenses.joined(separator: " · ")
+                    self.actions = [
+                        Act(label: "Immagine ok", status: "camera-pass", note: ""),
+                        Act(label: "Immagine sporca o nera", status: "fail", note: front ? "Camera anteriore non utilizzabile" : "Camera posteriore non utilizzabile"),
+                        Act(label: "Salta", status: "skip", note: "Non eseguito"),
+                    ]
+                }, onError: { message in
+                    self.settle(id, "fail", message)
                 })
             }
+        }
+        later(12) {
+            guard self.still(id), self.actions.count < 2 else { return }
+            self.hint = "La fotocamera non si è aperta."
+            self.actions = [
+                Act(label: "Non si apre", status: "fail", note: "La fotocamera non si è aperta"),
+                Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            ]
         }
     }
 
@@ -335,20 +718,41 @@ final class DiagModel: ObservableObject {
             settle("flash", "absent", "Niente flash")
             return
         }
+        hint = "Accendo il flash. Se compare la richiesta, consenti. Conferma solo se lo vedi acceso."
+        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         AVCaptureDevice.requestAccess(for: .video) { granted in
             DispatchQueue.main.async {
-                guard self.currentId == "flash" else { return }
+                guard self.still("flash") else { return }
                 guard granted else {
                     self.settle("flash", "skip", "Permesso fotocamera negato")
                     return
                 }
-                guard self.camera.torch(true) else {
-                    self.settle("flash", "fail", "Il flash non si accende")
-                    return
+                self.camera.stop {
+                    guard self.still("flash") else { return }
+                    self.camera.setTorch(true) { ok in
+                        guard self.still("flash") else { return }
+                        guard ok else {
+                            self.settle("flash", "fail", "Il flash non si accende")
+                            return
+                        }
+                        self.hint = "Il flash è acceso. Conferma solo se lo vedi."
+                        self.actions = [
+                            Act(label: "Si vede", status: "pass", note: "Flash acceso"),
+                            Act(label: "Non si accende", status: "fail", note: "Flash spento o debole"),
+                            Act(label: "Spegni e riaccendi", status: "replay-flash", note: ""),
+                            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+                        ]
+                    }
                 }
-                self.hint = "Il flash è acceso. Conferma solo se lo vedi."
-                self.actions = [Act(label: "Si vede", status: "pass", note: "Flash acceso"), Act(label: "Non si accende", status: "fail", note: "Flash comandato ma non visibile")]
             }
+        }
+        later(12) {
+            guard self.still("flash"), self.actions.count < 2 else { return }
+            self.hint = "Il flash non ha risposto."
+            self.actions = [
+                Act(label: "Non si accende", status: "fail", note: "Il flash non si accende"),
+                Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            ]
         }
     }
 
@@ -357,38 +761,115 @@ final class DiagModel: ObservableObject {
             settle("autofocus", "absent", "Obiettivo a fuoco fisso")
             return
         }
+        hint = "Apro la fotocamera. Avvicina un oggetto e poi allontanalo."
+        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         AVCaptureDevice.requestAccess(for: .video) { granted in
             DispatchQueue.main.async {
-                guard self.currentId == "autofocus", granted else {
-                    if self.currentId == "autofocus" { self.settle("autofocus", "skip", "Permesso fotocamera negato") }
+                guard self.still("autofocus") else { return }
+                guard granted else {
+                    self.settle("autofocus", "skip", "Permesso fotocamera negato")
                     return
                 }
                 self.showCamera = true
-                self.hint = "Inquadra un oggetto. Segno il test solo se la messa a fuoco si muove."
-                self.actions = [Act(label: "Non mette a fuoco", status: "fail", note: "Nessuna messa a fuoco"), Act(label: "Salta", status: "skip", note: "Non eseguito")]
                 self.camera.start(front: false, onFocus: {
+                    guard self.still("autofocus") else { return }
                     self.settle("autofocus", "pass", "Messa a fuoco rilevata")
+                }, onRunning: {
+                    guard self.still("autofocus") else { return }
+                    self.hint = "Inquadra un oggetto vicino e poi uno lontano."
                 }, onError: { message in
-                    DispatchQueue.main.async { self.settle("autofocus", "fail", message) }
+                    self.settle("autofocus", "fail", message)
                 })
             }
         }
+        later(12) {
+            guard self.still("autofocus") else { return }
+            self.hint = "Non ho visto il fuoco muoversi. Se l'immagine cambia davvero, confermalo."
+            self.actions = [
+                Act(label: "Il fuoco cambia", status: "pass", note: "Messa a fuoco confermata a vista"),
+                Act(label: "Non mette a fuoco", status: "fail", note: "Il fuoco non cambia"),
+                Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            ]
+        }
+    }
+
+    private func startTrueDepth() {
+        guard CameraSession.hasTrueDepth() else {
+            settle("truedepth", "absent", "Niente fotocamera TrueDepth")
+            return
+        }
+        hint = "Guarda lo schermo. Il volto compare in bianco su nero solo se viene seguito. L'immagine a infrarossi resta nel sistema."
+        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        armFace()
+        later(12) {
+            guard self.still("truedepth") else { return }
+            self.hint = "Il volto non è stato seguito. Avvicinati e guarda lo schermo, oppure segna l'esito."
+            self.actions = [
+                Act(label: "Riprova", status: "truedepth-retry", note: ""),
+                Act(label: "Non segue il volto", status: "fail", note: "TrueDepth presente, volto non seguito"),
+                Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            ]
+        }
+    }
+
+    private func armFace() {
+        faceTrack.onPicture = { [weak self] points in
+            guard let self, self.still("truedepth"), points.count > 100 else { return }
+            self.facePoints = points
+            guard !self.faceArmed else { return }
+            self.faceArmed = true
+            self.later(1.4) {
+                guard self.still("truedepth"), self.facePoints.count > 100 else { return }
+                self.settle("truedepth", "pass", "TrueDepth ha seguito il volto. L'immagine a infrarossi resta nel sistema.")
+            }
+        }
+        faceTrack.start { _ in }
     }
 
     private func startDepth() {
+        guard ARWorldTrackingConfiguration.isSupported,
+              ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) else {
+            settle("lidar", "absent", "Questo iPhone non consegna la profondità LiDAR")
+            return
+        }
+        hint = "Parte grigia. Avvicina la mano o un oggetto: solo le zone vicine diventano più scure. Il passaggio è automatico se succede, oppure lo segni a mano."
+        actions = [
+            Act(label: "Si scurisce", status: "lidar-ok", note: ""),
+            Act(label: "Resta chiara", status: "fail", note: "La profondità non si scurisce"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
+        depth.onPicture = { [weak self] image, live, near in
+            guard let self, self.still("lidar") else { return }
+            self.depthShot = image
+            guard live else { return }
+            self.depthLive = true
+            guard near else { return }
+            self.depthFrames += 1
+            guard self.depthFrames >= 4, !self.depthArmed else { return }
+            self.depthArmed = true
+            self.later(1.2) {
+                guard self.still("lidar"), self.depthFrames >= 4 else { return }
+                self.settle("lidar", "pass", "LiDAR: il vicino è più scuro del fondo")
+            }
+        }
         AVCaptureDevice.requestAccess(for: .video) { granted in
             DispatchQueue.main.async {
-                guard self.currentId == "lidar" else { return }
+                guard self.still("lidar") else { return }
                 guard granted else {
                     self.settle("lidar", "skip", "Permesso fotocamera negato")
                     return
                 }
-                self.hint = "Cerco una mappa di profondità vera."
-                self.depth.start { ok in
-                    if ok {
-                        self.settle("lidar", "pass", "Mappa di profondità ricevuta")
-                    } else {
-                        self.settle("lidar", "absent", "Questo iPhone non consegna la profondità LiDAR")
+                self.camera.stop {
+                    guard self.still("lidar") else { return }
+                    self.depth.start { ok in
+                        guard self.still("lidar") else { return }
+                        if !ok {
+                            self.settle("lidar", "skip", "Nessuna mappa di profondità")
+                        }
+                    }
+                    self.later(18) {
+                        guard self.still("lidar") else { return }
+                        self.settle("lidar", "skip", "Nessun oggetto vicino nella mappa")
                     }
                 }
             }
@@ -396,40 +877,69 @@ final class DiagModel: ObservableObject {
     }
 
     private func watchProximity() {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [])
+        try? session.setActive(true)
         let device = UIDevice.current
         device.isProximityMonitoringEnabled = true
         guard device.isProximityMonitoringEnabled else {
             settle("proximity", "absent", "Niente sensore di prossimità")
             return
         }
-        hint = "Avvicina il telefono all'orecchio."
-        actions = [Act(label: "Non risponde", status: "fail", note: "Il sensore non cambia"), Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        hint = "Copri il sensore in alto, vicino alla capsula. Lo schermo può spegnersi un attimo."
+        actions = [
+            Act(label: "Non reagisce", status: "fail", note: "Il sensore di prossimità non reagisce"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
         watch(UIDevice.proximityStateDidChangeNotification) { [weak self] in
-            if UIDevice.current.proximityState { self?.settle("proximity", "pass", "Sensore di prossimità attivato") }
+            if UIDevice.current.proximityState {
+                self?.proximityLit = true
+                self?.settle("proximity", "pass", "Sensore di prossimità attivato")
+            }
+        }
+        later(0.6) {
+            if self.still("proximity") && UIDevice.current.proximityState {
+                self.proximityLit = true
+                self.settle("proximity", "pass", "Sensore di prossimità attivato")
+            }
         }
     }
 
     private func startCompass() {
-        hint = "Ruota il telefono in piano."
-        actions = [Act(label: "Non risponde", status: "fail", note: "La bussola non gira"), Act(label: "Salta", status: "skip", note: "Non eseguito")]
-        var first: CLHeading?
+        hint = "Tieni il telefono in piano e ruotalo finché l'anello si riempie."
+        actions = [
+            Act(label: "Non gira", status: "fail", note: "La bussola non segue la rotazione"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
+        compassMarks = []
+        heading = 0
         place.onHeading = { [weak self] heading in
-            if first == nil { first = heading; return }
-            if abs(heading.magneticHeading - (first?.magneticHeading ?? 0)) > 8 {
-                self?.settle("compass", "pass", "La bussola segue la rotazione")
+            guard let self, self.still("compass") else { return }
+            self.heading = heading.magneticHeading
+            let bucket = Int(heading.magneticHeading / 45) % 8
+            self.compassMarks.insert(bucket)
+            self.detail = "\(self.compassMarks.count) di 8 direzioni"
+            if self.compassMarks.count >= 6 {
+                self.settle("compass", "pass", "Anello seguito per \(self.compassMarks.count) direzioni")
             }
         }
         place.onDenied = { [weak self] in self?.settle("compass", "skip", "Permesso posizione negato") }
         place.startHeading()
+        later(25) {
+            if self.still("compass") { self.settle("compass", "skip", "La bussola non ha girato") }
+        }
     }
 
     private func watchHeadphones() {
+        actions = [
+            Act(label: "Non ho le cuffie", status: "skip", note: "Nessuna cuffia da provare"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
         if headphonesNow() {
-            settle("headphones", "pass", "Cuffia già collegata")
+            settleSoon("headphones", "pass", "Cuffia già collegata")
             return
         }
-        hint = "Collega le cuffie. Se non ne hai, salta."
-        actions = [Act(label: "Nessuna cuffia", status: "skip", note: "Nessuna cuffia collegata")]
+        hint = "Collega cuffie Bluetooth o un adattatore. L'iPhone non ha il jack. Se non ne hai, salta."
         watch(AVAudioSession.routeChangeNotification) { [weak self] in
             if self?.headphonesNow() == true { self?.settle("headphones", "pass", "Cuffia collegata") }
         }
@@ -437,31 +947,114 @@ final class DiagModel: ObservableObject {
 
     private func headphonesNow() -> Bool {
         AVAudioSession.sharedInstance().currentRoute.outputs.contains { port in
-            port.portType == .headphones || port.portType == .bluetoothA2DP || port.portType == .bluetoothHFP || port.portType == .usbAudio
+            port.portType == .headphones || port.portType == .bluetoothA2DP || port.portType == .bluetoothHFP || port.portType == .bluetoothLE || port.portType == .usbAudio
         }
     }
 
+    private func startForce() {
+        guard UIScreen.main.traitCollection.forceTouchCapability == .available else {
+            settle("force", "absent", "Questo schermo non misura la pressione")
+            return
+        }
+        hint = "Premi piano e poi forte nel riquadro."
+        actions = [
+            Act(label: "Non misura la pressione", status: "absent", note: "Questo schermo non misura la pressione"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
+    }
+
     private func recordMic() {
+        guard still("microphone") else { return }
+        hint = "Parla per tre secondi. Poi riascolti la voce."
+        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         AVAudioApplication.requestRecordPermission { granted in
             DispatchQueue.main.async {
-                guard self.currentId == "microphone" else { return }
+                guard self.still("microphone") else { return }
                 guard granted else {
                     self.settle("microphone", "skip", "Permesso microfono negato")
                     return
                 }
-                self.hint = "Parla per due secondi. Poi riascolti la voce."
-                self.mic.record(seconds: 2, onLevel: { level in
-                    self.detail = "Livello \(level)"
-                }, done: { rms, url in
-                    guard self.currentId == "microphone", !self.settled else { return }
-                    if let url {
-                        self.playback = try? AVAudioPlayer(contentsOf: url)
-                        self.playback?.play()
-                    }
-                    self.detail = "Livello \(Int(rms * 1000))"
-                    self.hint = rms < 0.02 ? "Segnale molto basso. Se non ti senti, segna non conforme." : "Riascolta. Segna solo se riconosci la voce."
-                    self.actions = self.confirm("Mi sento", "Voce registrata e riascoltata", "Non si sente", "Microfono senza voce utile", replay: nil)
-                })
+                let session = AVAudioSession.sharedInstance()
+                try? session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+                try? session.setActive(true)
+                self.micQueue = session.availableInputs?.first { $0.portType == .builtInMic }?.dataSources ?? []
+                self.micCursor = 0
+                self.micLines = []
+                self.micBad = false
+                self.captureMic()
+            }
+        }
+    }
+
+    private func captureMic() {
+        guard still("microphone") else { return }
+        let source: AVAudioSessionDataSourceDescription? = micQueue.indices.contains(micCursor) ? micQueue[micCursor] : nil
+        let place = source.map(Self.micPlace) ?? (title: "Microfono", spot: "")
+        micLabel = place.title
+        micSpot = place.spot
+        micLevel = 0
+        micToken += 1
+        let token = micToken
+        hint = "Parla verso \(micLabel.lowercased()), segnato sul disegno, per tre secondi. Poi confermi a mano: il livello da solo non basta."
+        detail = micQueue.count > 1 ? "\(micCursor + 1) di \(micQueue.count)" : micLabel
+        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        mic.record(seconds: 3, source: source, onLevel: { level in
+            Task { @MainActor in
+                guard self.micToken == token, self.still("microphone") else { return }
+                self.micLevel = min(100, level / 4)
+                self.detail = "\(self.micLabel) · livello \(self.micLevel)"
+            }
+        }, done: { rms, url in
+            Task { @MainActor in
+                guard self.micToken == token, self.still("microphone") else { return }
+                if let url {
+                    self.playback = try? AVAudioPlayer(contentsOf: url)
+                    self.playback?.play()
+                }
+                let loud = min(100, Int(rms * 250))
+                self.micLevel = max(self.micLevel, loud)
+                self.detail = "\(self.micLabel) · livello \(self.micLevel)"
+                self.hint = "Conferma a mano \(self.micLabel.lowercased()). Riascolta e segna solo se riconosci la voce. Il livello non chiude il test."
+                var items = [
+                    Act(label: "Passa", status: "mic-ok", note: ""),
+                    Act(label: "Fallito", status: "mic-bad", note: ""),
+                ]
+                if self.playback != nil {
+                    items.append(Act(label: "Riascolta", status: "replay-mic", note: ""))
+                }
+                items.append(Act(label: "Salta", status: "skip", note: "Non eseguito"))
+                self.actions = items
+            }
+        })
+        later(8) {
+            guard self.micToken == token, self.still("microphone"), self.actions.count < 2 else { return }
+            self.hint = "La registrazione non è arrivata."
+            self.actions = [
+                Act(label: "Non si sente", status: "fail", note: "Registrazione assente"),
+                Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            ]
+        }
+    }
+
+    private func advanceMic() {
+        let next = micCursor + 1
+        if micQueue.isEmpty || next >= micQueue.count {
+            let note = micLines.joined(separator: " · ")
+            settle("microphone", micBad ? "fail" : "pass", note.isEmpty ? "Microfono verificato" : note)
+            return
+        }
+        micCursor = next
+        playback?.stop()
+        captureMic()
+    }
+
+    private func pulseVibration() {
+        let seen = wave
+        for step in 0..<3 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * 0.45) {
+                guard seen == self.wave, self.currentId == "vibration" else { return }
+                AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
             }
         }
     }
@@ -476,14 +1069,18 @@ final class DiagModel: ObservableObject {
     private func cleanup() {
         armPower = false
         showCamera = false
+        face.cancel()
+        faceTrack.stop()
         tone.stop()
         mic.stop()
         motion.stop()
         place.stop()
         radio.stop()
         depth.stop()
+        playback?.stop()
+        playback = nil
+        camera.setTorch(false) { _ in }
         camera.stop()
-        camera.torch(false)
         volumeTimer?.invalidate()
         volumeTimer = nil
         UIDevice.current.isProximityMonitoringEnabled = false
@@ -492,4 +1089,108 @@ final class DiagModel: ObservableObject {
         }
         observers.removeAll()
     }
+
+    private static func hasRingSwitch() -> Bool {
+        guard let major = Machine.iphoneMajor else { return false }
+        return major <= 15
+    }
+
+    private static func angleGap(_ a: Double, _ b: Double) -> Double {
+        let raw = abs(a - b).truncatingRemainder(dividingBy: .pi * 2)
+        return min(raw, .pi * 2 - raw)
+    }
+
+    private static func micPlace(_ source: AVAudioSessionDataSourceDescription) -> (title: String, spot: String) {
+        if let orientation = source.orientation {
+            switch orientation {
+            case .back:
+                return ("Microfono posteriore", "back")
+            case .front, .top:
+                return ("Microfono frontale", "front")
+            case .bottom:
+                return ("Microfono in basso", "bottom")
+            default:
+                break
+            }
+        }
+        if let location = source.location {
+            switch location {
+            case .lower:
+                return ("Microfono in basso", "bottom")
+            case .upper:
+                return ("Microfono frontale", "front")
+            default:
+                break
+            }
+        }
+        let name = source.dataSourceName.lowercased()
+        if name.contains("back") || name.contains("rear") || name.contains("posterior") || name.contains("dietro") {
+            return ("Microfono posteriore", "back")
+        }
+        if name.contains("front") || name.contains("top") || name.contains("upper") || name.contains("frontal") || name.contains("davanti") || name.contains("alto") {
+            return ("Microfono frontale", "front")
+        }
+        if name.contains("bottom") || name.contains("lower") || name.contains("basso") {
+            return ("Microfono in basso", "bottom")
+        }
+        return (source.dataSourceName, "")
+    }
+
+    private func remember() {
+        let saved = SavedRun(
+            phase: phase,
+            index: index,
+            items: outcomes.map { SavedItem(id: $0.id, status: $0.status, note: $0.note) },
+            glass: lookGlass,
+            back: lookBack,
+            body: lookBody,
+            cable: withCable,
+            box: withBox
+        )
+        guard let data = try? JSONEncoder().encode(saved) else { return }
+        let url = Self.runURL()
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
+        canResume = true
+    }
+
+    private static func loadRun() -> SavedRun? {
+        guard let data = try? Data(contentsOf: runURL()) else { return nil }
+        return try? JSONDecoder().decode(SavedRun.self, from: data)
+    }
+
+    private static func clearRun() {
+        try? FileManager.default.removeItem(at: runURL())
+    }
+
+    private static func runURL() -> URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("RefurbX/run.json")
+    }
+
+    static func lensTitle(_ type: AVCaptureDevice.DeviceType) -> String {
+        switch type {
+        case .builtInUltraWideCamera: return "Ultra-grandangolo"
+        case .builtInTelephotoCamera: return "Teleobiettivo"
+        case .builtInWideAngleCamera: return "Grandangolo"
+        default: return "Obiettivo"
+        }
+    }
+}
+
+private struct SavedItem: Codable {
+    var id: String
+    var status: String
+    var note: String
+}
+
+private struct SavedRun: Codable {
+    var phase: String
+    var index: Int
+    var items: [SavedItem]
+    var glass: Int
+    var back: Int
+    var body: Int
+    var cable: Bool
+    var box: Bool
 }

@@ -15,51 +15,56 @@ struct Mark {
 enum Catalog {
     struct Row {
         let id: String
+        let group: String
         let title: String
         let weight: Int
         let critical: Bool
     }
 
     static let rows: [Row] = [
-        Row(id: "identity", title: "Identità", weight: 1, critical: false),
-        Row(id: "battery", title: "Batteria", weight: 2, critical: false),
-        Row(id: "network", title: "Rete", weight: 1, critical: false),
-        Row(id: "display", title: "Display", weight: 3, critical: true),
-        Row(id: "touch", title: "Touchscreen", weight: 3, critical: true),
-        Row(id: "multitouch", title: "Multi-touch", weight: 2, critical: false),
-        Row(id: "speaker", title: "Altoparlante", weight: 3, critical: true),
-        Row(id: "microphone", title: "Microfono", weight: 3, critical: true),
-        Row(id: "vibration", title: "Vibrazione", weight: 2, critical: false),
-        Row(id: "earpiece", title: "Capsula auricolare", weight: 2, critical: false),
-        Row(id: "camera_back", title: "Camera posteriore", weight: 3, critical: true),
-        Row(id: "camera_front", title: "Camera anteriore", weight: 2, critical: false),
-        Row(id: "accelerometer", title: "Accelerometro", weight: 2, critical: false),
-        Row(id: "gyroscope", title: "Giroscopio", weight: 1, critical: false),
-        Row(id: "gps", title: "GPS", weight: 1, critical: false),
-        Row(id: "volume_up", title: "Volume +", weight: 2, critical: false),
-        Row(id: "volume_down", title: "Volume −", weight: 2, critical: false),
-        Row(id: "power_button", title: "Accensione", weight: 2, critical: false),
-        Row(id: "mute_switch", title: "Silenzioso", weight: 1, critical: false),
-        Row(id: "charging", title: "Ricarica cavo", weight: 3, critical: true),
-        Row(id: "biometrics", title: "Biometria", weight: 1, critical: false),
-        Row(id: "bluetooth", title: "Bluetooth", weight: 1, critical: false),
-        Row(id: "nfc", title: "NFC", weight: 1, critical: false),
-        Row(id: "flash", title: "Flash", weight: 1, critical: false),
-        Row(id: "autofocus", title: "Autofocus", weight: 1, critical: false),
-        Row(id: "truedepth", title: "TrueDepth", weight: 1, critical: false),
-        Row(id: "lidar", title: "Scanner LiDAR", weight: 1, critical: false),
-        Row(id: "memory", title: "Memoria", weight: 1, critical: false),
-        Row(id: "proximity", title: "Prossimità", weight: 1, critical: false),
-        Row(id: "light", title: "Sensore di luce", weight: 1, critical: false),
-        Row(id: "compass", title: "Bussola", weight: 1, critical: false),
-        Row(id: "headphones", title: "Cuffie", weight: 1, critical: false),
-        Row(id: "call", title: "Chiamata", weight: 1, critical: false),
-        Row(id: "force", title: "3D Touch", weight: 1, critical: false),
-        Row(id: "stylus", title: "Penna", weight: 1, critical: false),
+        Row(id: "identity", group: "Sistema", title: "Identità", weight: 1, critical: false),
+        Row(id: "battery", group: "Sistema", title: "Batteria", weight: 2, critical: false),
+        Row(id: "memory", group: "Sistema", title: "Memoria", weight: 1, critical: false),
+        Row(id: "network", group: "Sistema", title: "Rete", weight: 1, critical: false),
+        Row(id: "display", group: "Schermo", title: "Display", weight: 3, critical: true),
+        Row(id: "touch", group: "Schermo", title: "Touchscreen", weight: 3, critical: true),
+        Row(id: "multitouch", group: "Schermo", title: "Multi-touch", weight: 2, critical: false),
+        Row(id: "force", group: "Schermo", title: "3D Touch", weight: 1, critical: false),
+        Row(id: "stylus", group: "Schermo", title: "Penna", weight: 1, critical: false),
+        Row(id: "speaker", group: "Audio", title: "Altoparlante", weight: 3, critical: true),
+        Row(id: "earpiece", group: "Audio", title: "Capsula auricolare", weight: 2, critical: false),
+        Row(id: "microphone", group: "Audio", title: "Microfono", weight: 3, critical: true),
+        Row(id: "vibration", group: "Audio", title: "Vibrazione", weight: 2, critical: false),
+        Row(id: "call", group: "Audio", title: "Chiamata", weight: 1, critical: false),
+        Row(id: "headphones", group: "Audio", title: "Cuffie", weight: 1, critical: false),
+        Row(id: "camera_back", group: "Foto", title: "Camera posteriore", weight: 3, critical: true),
+        Row(id: "camera_front", group: "Foto", title: "Camera anteriore", weight: 2, critical: false),
+        Row(id: "autofocus", group: "Foto", title: "Autofocus", weight: 1, critical: false),
+        Row(id: "flash", group: "Foto", title: "Flash", weight: 1, critical: false),
+        Row(id: "truedepth", group: "Foto", title: "TrueDepth", weight: 1, critical: false),
+        Row(id: "lidar", group: "Sensori", title: "Scanner LiDAR", weight: 1, critical: false),
+        Row(id: "proximity", group: "Sensori", title: "Prossimità", weight: 1, critical: false),
+        Row(id: "light", group: "Sensori", title: "Sensore di luce", weight: 1, critical: false),
+        Row(id: "accelerometer", group: "Sensori", title: "Accelerometro", weight: 2, critical: false),
+        Row(id: "gyroscope", group: "Sensori", title: "Giroscopio", weight: 1, critical: false),
+        Row(id: "compass", group: "Sensori", title: "Bussola", weight: 1, critical: false),
+        Row(id: "gps", group: "Sensori", title: "GPS", weight: 1, critical: false),
+        Row(id: "bluetooth", group: "Connettività", title: "Bluetooth", weight: 1, critical: false),
+        Row(id: "nfc", group: "Connettività", title: "NFC", weight: 1, critical: false),
+        Row(id: "volume_up", group: "Tasti", title: "Volume +", weight: 2, critical: false),
+        Row(id: "volume_down", group: "Tasti", title: "Volume −", weight: 2, critical: false),
+        Row(id: "power_button", group: "Tasti", title: "Accensione", weight: 2, critical: false),
+        Row(id: "mute_switch", group: "Tasti", title: "Silenzioso", weight: 1, critical: false),
+        Row(id: "charging", group: "Energia", title: "Ricarica cavo", weight: 3, critical: true),
+        Row(id: "biometrics", group: "Sicurezza", title: "Biometria", weight: 1, critical: false),
     ]
 
     static func title(_ id: String) -> String {
         rows.first { $0.id == id }?.title ?? id
+    }
+
+    static func group(_ id: String) -> String {
+        rows.first { $0.id == id }?.group ?? ""
     }
 }
 
