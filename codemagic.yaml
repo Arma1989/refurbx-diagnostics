@@ -9,6 +9,8 @@ workflows:
       events: []
     environment:
       xcode: latest
+      groups:
+        - signing
     scripts:
       - name: Genera il progetto Xcode
         script: |
@@ -18,7 +20,7 @@ workflows:
         script: |
           set -euo pipefail
           keychain initialize
-          app-store-connect fetch-signing-files eu.refurbx.diagnostics --type IOS_APP_STORE --create
+          app-store-connect fetch-signing-files eu.refurbx.diagnostics --type IOS_APP_STORE --create --certificate-key="@env:CERTIFICATE_PRIVATE_KEY"
           keychain add-certificates
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
