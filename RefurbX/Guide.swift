@@ -80,7 +80,7 @@ private enum GuideCopy {
         case "compass": return "Tienilo in piano e giralo finché l'anello si riempie."
         case "gps": return "Cerco il satellite e mostro la precisione in metri. In negozio può non arrivare: in quel caso salta."
         case "bluetooth": return "Controllo che il Bluetooth si accenda. Se compare la richiesta, consenti."
-        case "nfc": return "Si apre la lettura NFC. Avvicina un tag vero. Senza tag il test non risulta superato."
+        case "nfc": return "Il profilo di firma non include ancora NFC. Il test si salta e non abbassa il grado."
         case "volume_up": return "Premi il tasto volume più, sul fianco."
         case "volume_down": return "Premi il tasto volume meno, sul fianco."
         case "power_button": return "Premi il tasto di accensione, poi riapri lo schermo."

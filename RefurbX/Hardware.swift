@@ -184,7 +184,7 @@ enum AudioRoute {
         let session = AVAudioSession.sharedInstance()
         deactivate()
         try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [])
-        try? session.overrideOutputAudioPort(.none)
+        try? session.overrideOutputAudioPort(AVAudioSession.PortOverride.none)
         if let builtIn = builtInMic() {
             try? session.setPreferredInput(builtIn)
         }

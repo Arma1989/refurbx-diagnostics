@@ -548,22 +548,7 @@ final class DiagModel: ObservableObject {
     }
 
     private func startNfc() {
-        hint = "Si apre la finestra di sistema. Avvicina un tag NFC al retro, in alto. Senza un tag vero il test non risulta superato."
-        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
-        tags.onResult = { [weak self] status, note in
-            guard let self, self.still("nfc") else { return }
-            if status == "cancel" {
-                self.hint = "Lettura annullata. Riprova con un tag, oppure segna l'esito."
-                self.actions = [
-                    Act(label: "Riprova", status: "nfc-retry", note: ""),
-                    Act(label: "Non legge", status: "fail", note: "NFC non ha letto un tag"),
-                    Act(label: "Salta", status: "skip", note: "Non eseguito"),
-                ]
-                return
-            }
-            self.settle("nfc", status, note)
-        }
-        tags.start()
+        settle("nfc", "skip", "NFC Tag Reading non è nel profilo di firma. Il test non abbassa il grado.")
     }
 
     private func startSpeaker() {
