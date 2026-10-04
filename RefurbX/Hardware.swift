@@ -7,6 +7,7 @@ import CoreMotion
 import Darwin
 import LocalAuthentication
 import Network
+import SwiftUI
 import UIKit
 
 enum Machine {
