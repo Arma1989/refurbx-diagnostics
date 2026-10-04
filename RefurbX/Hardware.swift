@@ -4,6 +4,7 @@ import AVFoundation
 import CoreBluetooth
 import CoreLocation
 import CoreMotion
+import CoreNFC
 import Darwin
 import LocalAuthentication
 import Network
@@ -716,24 +717,23 @@ final class RadioProbe: NSObject, CBCentralManagerDelegate {
 }
 
 enum NetworkProbe {
-    static func check(_ done: @escaping (Bool, String) -> Void) {
+    static func check(_ done: @escaping (String) -> Void) {
         let monitor = NWPathMonitor()
         let gate = Gate()
         monitor.pathUpdateHandler = { path in
             gate.run {
-                let online = path.status == .satisfied
-                let note: String
-                if !online {
-                    note = "Nessuna rete internet"
+                let kind: String
+                if path.status != .satisfied {
+                    kind = "none"
                 } else if path.usesInterfaceType(.wifi) {
-                    note = "Wi-Fi attivo"
+                    kind = "wifi"
                 } else if path.usesInterfaceType(.cellular) {
-                    note = "Rete cellulare attiva"
+                    kind = "cellular"
                 } else {
-                    note = "Rete attiva"
+                    kind = "other"
                 }
                 monitor.cancel()
-                DispatchQueue.main.async { done(online, note) }
+                DispatchQueue.main.async { done(kind) }
             }
         }
         monitor.start(queue: DispatchQueue(label: "refurbx.net"))
@@ -750,20 +750,109 @@ final class Gate {
 }
 
 enum DiskProbe {
-    static func note() -> String {
-        let url = URL(fileURLWithPath: NSHomeDirectory())
-        let keys: Set<URLResourceKey> = [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey]
-        guard let values = try? url.resourceValues(forKeys: keys),
-              let total = values.volumeTotalCapacity else {
-            return "Capacità non letta"
-        }
-        let free = values.volumeAvailableCapacityForImportantUsage ?? 0
-        let used = Int64(total) - free
-        return "Disco \(format(used)) usati su \(format(Int64(total)))"
+    struct Report {
+        var total: Int64
+        var free: Int64
+        var used: Int64
+        var note: String
     }
 
-    private static func format(_ bytes: Int64) -> String {
-        String(format: "%.1f GB", Double(bytes) / 1_000_000_000.0)
+    static func read() -> Report? {
+        let url = URL(fileURLWithPath: NSHomeDirectory())
+        let keys: Set<URLResourceKey> = [
+            .volumeTotalCapacityKey,
+            .volumeAvailableCapacityKey,
+            .volumeAvailableCapacityForImportantUsageKey,
+            .volumeAvailableCapacityForOpportunisticUsageKey,
+        ]
+        guard let values = try? url.resourceValues(forKeys: keys),
+              let totalRaw = values.volumeTotalCapacity else { return nil }
+        let total = Int64(totalRaw)
+        guard total >= 16_000_000_000 else { return nil }
+        let important = values.volumeAvailableCapacityForImportantUsage ?? 0
+        let plain = Int64(values.volumeAvailableCapacity ?? 0)
+        let opportunistic = values.volumeAvailableCapacityForOpportunisticUsage ?? 0
+        let free = [important, plain, opportunistic].first { $0 > 0 && $0 < total } ?? 0
+        let used = max(0, total - free)
+        let note = "Totale \(gb(total)) · Libero \(gb(free)) · Usato \(gb(used))"
+        return Report(total: total, free: free, used: used, note: note)
+    }
+
+    static func gb(_ bytes: Int64) -> String {
+        String(format: "%.1f GB", Double(bytes) / 1_000_000_000).replacingOccurrences(of: ".", with: ",")
+    }
+}
+
+final class TagProbe: NSObject, NFCNDEFReaderSessionDelegate {
+    private var session: NFCNDEFReaderSession?
+    private var reported = false
+    private let lock = NSLock()
+    var onResult: ((String, String) -> Void)?
+
+    func start() {
+        lock.lock()
+        reported = false
+        lock.unlock()
+        guard NFCNDEFReaderSession.readingAvailable else {
+            finish("absent", "Questo iPhone non legge i tag NFC")
+            return
+        }
+        let session = NFCNDEFReaderSession(delegate: self, queue: nil, invalidateAfterFirstRead: false)
+        session.alertMessage = "Avvicina un tag NFC al retro, in alto."
+        self.session = session
+        session.begin()
+    }
+
+    func stop() {
+        session?.invalidate()
+        session = nil
+        onResult = nil
+    }
+
+    func readerSession(_ session: NFCNDEFReaderSession, didDetect tags: [NFCNDEFTag]) {
+        guard let tag = tags.first else { return }
+        session.connect(to: tag) { error in
+            if error != nil {
+                session.invalidate(errorMessage: "Tag non collegato")
+                return
+            }
+            tag.readNDEF { message, _ in
+                let count = message?.records.count ?? 0
+                session.alertMessage = count > 0 ? "Tag NFC letto" : "Tag NFC visto"
+                let note = count > 0 ? "Tag NFC letto, \(count) record" : "Tag NFC visto"
+                self.finish("pass", note)
+                session.invalidate()
+            }
+        }
+    }
+
+    func readerSession(_ session: NFCNDEFReaderSession, didDetectNDEFs messages: [NFCNDEFMessage]) {
+        let count = messages.reduce(0) { $0 + $1.records.count }
+        session.alertMessage = "Tag NFC letto"
+        finish("pass", count > 0 ? "Tag NFC letto, \(count) record" : "Tag NFC letto")
+        session.invalidate()
+    }
+
+    func readerSession(_ session: NFCNDEFReaderSession, didInvalidateWithError error: Error) {
+        let code = (error as? NFCReaderError)?.code
+        if code == .readerSessionInvalidationErrorFirstNDEFTagRead { return }
+        if code == .readerSessionInvalidationErrorUserCanceled {
+            finish("cancel", "")
+        } else {
+            finish("fail", "NFC non ha letto un tag")
+        }
+    }
+
+    private func finish(_ status: String, _ note: String) {
+        lock.lock()
+        if reported {
+            lock.unlock()
+            return
+        }
+        reported = true
+        lock.unlock()
+        let callback = onResult
+        DispatchQueue.main.async { callback?(status, note) }
     }
 }
 

@@ -25,7 +25,7 @@ enum Catalog {
         Row(id: "identity", group: "Sistema", title: "Identità", weight: 1, critical: false),
         Row(id: "battery", group: "Sistema", title: "Batteria", weight: 2, critical: false),
         Row(id: "memory", group: "Sistema", title: "Memoria", weight: 1, critical: false),
-        Row(id: "network", group: "Sistema", title: "Rete", weight: 1, critical: false),
+        Row(id: "network", group: "Sistema", title: "Wi-Fi", weight: 1, critical: false),
         Row(id: "display", group: "Schermo", title: "Display", weight: 3, critical: true),
         Row(id: "touch", group: "Schermo", title: "Touchscreen", weight: 3, critical: true),
         Row(id: "multitouch", group: "Schermo", title: "Multi-touch", weight: 2, critical: false),

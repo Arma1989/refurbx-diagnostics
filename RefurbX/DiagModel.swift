@@ -50,6 +50,10 @@ final class DiagModel: ObservableObject {
     @Published var micSpot = ""
     @Published var micLevel = 0
     @Published var audioSpot = ""
+    @Published var memoryTotal = ""
+    @Published var memoryFree = ""
+    @Published var memoryUsed = ""
+    @Published var gpsAccuracy = ""
 
     let camera = CameraSession()
 
@@ -64,6 +68,8 @@ final class DiagModel: ObservableObject {
     private let depth = DepthProbe()
     private let faceTrack = FaceTrackProbe()
     private let face = FaceProbe()
+    private let tags = TagProbe()
+    private var bestGps: CLLocation?
     private var settled = false
     private var wave = 0
     private var sawLock = false
@@ -169,6 +175,10 @@ final class DiagModel: ObservableObject {
             hint = "Guarda lo schermo. Il volto compare in bianco su nero solo se viene seguito. L'immagine a infrarossi resta nel sistema."
             actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
             armFace()
+        case "wifi-retry":
+            readNetwork()
+        case "nfc-retry":
+            startNfc()
         case "lidar-ok":
             guard depthLive else {
                 hint = "La mappa non è ancora arrivata. Avvicina un oggetto: deve scurirsi."
@@ -284,7 +294,7 @@ final class DiagModel: ObservableObject {
         let row = Catalog.rows[index]
         currentId = row.id
         settled = false
-        phase = "run"
+        phase = "guide"
         remember()
         hint = ""
         detail = ""
@@ -316,6 +326,21 @@ final class DiagModel: ObservableObject {
         micSpot = ""
         micLevel = 0
         audioSpot = ""
+        memoryTotal = ""
+        memoryFree = ""
+        memoryUsed = ""
+        gpsAccuracy = ""
+        bestGps = nil
+    }
+
+    func beginCurrent() {
+        guard phase == "guide", !settled else { return }
+        phase = "run"
+        launch()
+    }
+
+    private func launch() {
+        let row = Catalog.rows[index]
         switch row.id {
         case "identity": readIdentity()
         case "battery": readBattery()
@@ -366,8 +391,7 @@ final class DiagModel: ObservableObject {
         case "charging": watchCharge()
         case "biometrics": startBiometrics()
         case "bluetooth": startBluetooth()
-        case "nfc":
-            settle("nfc", "skip", "La lettura NFC si attiva dal portale Apple. Senza quel permesso la salto.")
+        case "nfc": startNfc()
         case "flash": startFlash()
         case "autofocus": startAutofocus()
         case "truedepth": startTrueDepth()
@@ -460,28 +484,81 @@ final class DiagModel: ObservableObject {
         case .unplugged: state = "non in carica"
         default: state = "stato sconosciuto"
         }
-        return "\(percent)%, \(state). Cicli e salute celle non escono da un'app di terzi."
+        return "\(percent)%, \(state)"
     }
 
     private func readMemory() {
-        let note = DiskProbe.note()
-        if note == "Capacità non letta" {
-            settleSoon("memory", "fail", note)
-        } else {
-            settleSoon("memory", "pass", note)
+        guard let report = DiskProbe.read() else {
+            memoryTotal = ""
+            memoryFree = ""
+            memoryUsed = ""
+            settle("memory", "fail", "Capacità del telefono non letta")
+            return
         }
+        memoryTotal = DiskProbe.gb(report.total)
+        memoryFree = DiskProbe.gb(report.free)
+        memoryUsed = DiskProbe.gb(report.used)
+        hint = "Totale, libero e usato sono quelli del telefono."
+        detail = report.note
+        actions = [
+            Act(label: "Numeri giusti", status: "pass", note: report.note),
+            Act(label: "Numeri sbagliati", status: "fail", note: "La memoria letta non torna"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
     }
 
     private func readNetwork() {
-        hint = "Controllo la rete."
+        hint = "Controllo il Wi-Fi."
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
-        NetworkProbe.check { [weak self] online, note in
+        NetworkProbe.check { [weak self] kind in
             guard let self, self.still("network") else { return }
-            self.settle("network", online ? "pass" : "fail", note)
+            switch kind {
+            case "wifi":
+                self.settle("network", "pass", "Wi-Fi attivo")
+            case "cellular":
+                self.hint = "C'è solo la rete cellulare. Accendi il Wi-Fi, poi riprova."
+                self.actions = [
+                    Act(label: "Riprova", status: "wifi-retry", note: ""),
+                    Act(label: "Wi-Fi spento", status: "fail", note: "Wi-Fi non attivo"),
+                    Act(label: "Salta", status: "skip", note: "Non eseguito"),
+                ]
+            default:
+                self.hint = "Nessun Wi-Fi. Accendilo e riprova, oppure segna l'esito."
+                self.actions = [
+                    Act(label: "Riprova", status: "wifi-retry", note: ""),
+                    Act(label: "Wi-Fi spento", status: "fail", note: "Wi-Fi non attivo"),
+                    Act(label: "Salta", status: "skip", note: "Non eseguito"),
+                ]
+            }
         }
-        later(6) {
-            if self.still("network") { self.settle("network", "fail", "Nessuna rete internet") }
+        later(8) {
+            guard self.still("network"), self.actions.count < 2 else { return }
+            self.hint = "Il Wi-Fi non ha risposto."
+            self.actions = [
+                Act(label: "Riprova", status: "wifi-retry", note: ""),
+                Act(label: "Wi-Fi spento", status: "fail", note: "Wi-Fi non attivo"),
+                Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            ]
         }
+    }
+
+    private func startNfc() {
+        hint = "Si apre la finestra di sistema. Avvicina un tag NFC al retro, in alto. Senza un tag vero il test non risulta superato."
+        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        tags.onResult = { [weak self] status, note in
+            guard let self, self.still("nfc") else { return }
+            if status == "cancel" {
+                self.hint = "Lettura annullata. Riprova con un tag, oppure segna l'esito."
+                self.actions = [
+                    Act(label: "Riprova", status: "nfc-retry", note: ""),
+                    Act(label: "Non legge", status: "fail", note: "NFC non ha letto un tag"),
+                    Act(label: "Salta", status: "skip", note: "Non eseguito"),
+                ]
+                return
+            }
+            self.settle("nfc", status, note)
+        }
+        tags.start()
     }
 
     private func startSpeaker() {
@@ -560,17 +637,32 @@ final class DiagModel: ObservableObject {
             Act(label: "Nessun fix", status: "skip", note: "Nessun fix in negozio"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
+        bestGps = nil
+        gpsAccuracy = "In attesa"
         place.onFix = { [weak self] location in
+            guard let self, self.still("gps"), location.horizontalAccuracy >= 0 else { return }
+            if let best = self.bestGps, location.horizontalAccuracy >= best.horizontalAccuracy { return }
+            self.bestGps = location
             let meters = max(0, Int(location.horizontalAccuracy.rounded()))
-            let line = String(format: "Precisione ±%d m", meters)
-            self?.detail = line
-            self?.settle("gps", "pass", line)
+            self.gpsAccuracy = "±\(meters) m"
+            self.detail = "Precisione ±\(meters) m"
+            if location.horizontalAccuracy <= 80 {
+                self.settle("gps", "pass", "Fix ±\(meters) m")
+            }
         }
         place.onDenied = { [weak self] in
             self?.settle("gps", "skip", "Permesso posizione negato")
         }
         place.requestFix()
-        later(25) { if self.still("gps") { self.settle("gps", "skip", "Nessun fix in tempo") } }
+        later(30) {
+            guard self.still("gps") else { return }
+            if let best = self.bestGps, best.horizontalAccuracy >= 0, best.horizontalAccuracy < 1000 {
+                let meters = max(0, Int(best.horizontalAccuracy.rounded()))
+                self.settle("gps", "pass", "Fix ±\(meters) m")
+            } else {
+                self.settle("gps", "skip", "Nessun fix in tempo")
+            }
+        }
     }
 
     private func watchVolume(up: Bool) {
@@ -1093,6 +1185,7 @@ final class DiagModel: ObservableObject {
         place.stop()
         radio.stop()
         depth.stop()
+        tags.stop()
         playback?.stop()
         playback = nil
         if releaseCamera {

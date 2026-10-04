@@ -13,6 +13,8 @@ struct DiagView: View {
             switch model.phase {
             case "report":
                 ReportScreen(model: model)
+            case "guide":
+                GuideScreen(model: model)
             case "run":
                 if model.currentId == "display" {
                     DisplayPane(
@@ -20,6 +22,8 @@ struct DiagView: View {
                         onFail: { model.settle("display", "fail", "Difetti visibili") },
                         onSkip: { model.settle("display", "skip", "Non eseguito") }
                     )
+                } else if model.currentId == "touch" {
+                    TouchFull(model: model)
                 } else {
                     RunScreen(model: model)
                 }
@@ -115,8 +119,10 @@ private struct RunScreen: View {
     }
 
     @ViewBuilder private var stage: some View {
-        if model.currentId == "touch" {
-            TouchPane(onProgress: { model.touchProgress($0, $1) }, onPass: { model.settle("touch", "pass", "Tutte le celle rispondono") })
+        if model.currentId == "memory" {
+            MemoryBoard(total: model.memoryTotal, free: model.memoryFree, used: model.memoryUsed)
+        } else if model.currentId == "gps" {
+            GpsBoard(accuracy: model.gpsAccuracy)
         } else if model.currentId == "multitouch" {
             MultiPane(count: model.fingers, onCount: { model.fingers = $0 }, onPass: { model.settle("multitouch", "pass", "\($0) dita") })
         } else if model.currentId == "accelerometer" {
@@ -322,12 +328,91 @@ final class TapView: UIView {
     }
 }
 
-private struct TouchPane: View {
-    let onProgress: (Int, Int) -> Void
-    let onPass: () -> Void
+private struct TouchFull: View {
+    @ObservedObject var model: DiagModel
 
     var body: some View {
-        TouchGrid(onProgress: onProgress, onPass: onPass)
+        ZStack {
+            TouchGrid(
+                onProgress: { model.touchProgress($0, $1) },
+                onPass: { model.settle("touch", "pass", "Tutte le celle rispondono") }
+            )
+            .ignoresSafeArea()
+        }
+        .overlay(alignment: .top) {
+            Text(model.detail.isEmpty ? "Tutto lo schermo" : model.detail)
+                .font(.footnote.weight(.semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(.top, 8)
+                .allowsHitTesting(false)
+        }
+        .overlay(alignment: .topTrailing) {
+            Button("Salta") { model.settle("touch", "skip", "Non eseguito") }
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(.top, 8)
+                .padding(.trailing, 12)
+        }
+        .overlay(alignment: .bottom) {
+            Button("Zona morta") { model.settle("touch", "fail", "Una zona del touch non risponde") }
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(.bottom, 12)
+        }
+    }
+}
+
+private struct MemoryBoard: View {
+    let total: String
+    let free: String
+    let used: String
+
+    var body: some View {
+        VStack(spacing: 12) {
+            line("Totale", total)
+            line("Libero", free)
+            line("Usato", used)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func line(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title).foregroundStyle(.white.opacity(0.7))
+            Spacer()
+            Text(value.isEmpty ? "—" : value)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 64)
+        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+private struct GpsBoard: View {
+    let accuracy: String
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("GPS")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(cyan)
+            Text(accuracy.isEmpty ? "In attesa" : accuracy)
+                .font(.system(size: 56, weight: .semibold))
+                .foregroundStyle(.white)
+                .minimumScaleFactor(0.5)
+            Text("Precisione reale, senza mappa.")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.65))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
