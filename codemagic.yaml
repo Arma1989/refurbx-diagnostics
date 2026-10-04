@@ -16,13 +16,21 @@ workflows:
           xcodegen generate
       - name: Prepara la firma
         script: |
+          set -euo pipefail
           keychain initialize
           app-store-connect fetch-signing-files eu.refurbx.diagnostics --type IOS_APP_STORE --create
           keychain add-certificates
-          xcode-project use-profiles
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+          find "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" -name '*.mobileprovision' -print
+          xcode-project use-profiles --project "$CM_BUILD_DIR/RefurbX.xcodeproj" --archive-method app-store --code-signing-setup-verbose-logging || true
+          echo aW1wb3J0IGdsb2IKaW1wb3J0IG9zCmltcG9ydCBwbGlzdGxpYgppbXBvcnQgc3VicHJvY2VzcwppbXBvcnQgc3lzCmZyb20gcGF0aGxpYiBpbXBvcnQgUGF0aAoKaG9tZXMgPSBbCiAgICBvcy5wYXRoLmV4cGFuZHVzZXIoIn4vTGlicmFyeS9Nb2JpbGVEZXZpY2UvUHJvdmlzaW9uaW5nIFByb2ZpbGVzIiksCiAgICBvcy5wYXRoLmV4cGFuZHVzZXIoIn4vTGlicmFyeS9EZXZlbG9wZXIvWGNvZGUvVXNlckRhdGEvUHJvdmlzaW9uaW5nIFByb2ZpbGVzIiksCl0KcGF0aHMgPSBbXQpmb3IgaG9tZSBpbiBob21lczoKICAgIHBhdGhzLmV4dGVuZChnbG9iLmdsb2Iob3MucGF0aC5qb2luKGhvbWUsICIqLm1vYmlsZXByb3Zpc2lvbiIpKSkKY2hvc2VuID0gTm9uZQpmb3IgcGF0aCBpbiBwYXRoczoKICAgIGRhdGEgPSBwbGlzdGxpYi5sb2FkcyhzdWJwcm9jZXNzLmNoZWNrX291dHB1dChbInNlY3VyaXR5IiwgImNtcyIsICItRCIsICItaSIsIHBhdGhdKSkKICAgIGFwcF9pZCA9IGRhdGEuZ2V0KCJFbnRpdGxlbWVudHMiLCB7fSkuZ2V0KCJhcHBsaWNhdGlvbi1pZGVudGlmaWVyIiwgIiIpCiAgICBpZiBhcHBfaWQuZW5kc3dpdGgoImV1LnJlZnVyYnguZGlhZ25vc3RpY3MiKToKICAgICAgICBjaG9zZW4gPSBkYXRhCiAgICAgICAgYnJlYWsKaWYgbm90IGNob3NlbjoKICAgIHN5cy5leGl0KCJOZXNzdW4gcHJvdmlzaW9uaW5nIHByb2ZpbGUgcGVyIGV1LnJlZnVyYnguZGlhZ25vc3RpY3MiKQp1dWlkID0gY2hvc2VuWyJVVUlEIl0KbmFtZSA9IGNob3NlblsiTmFtZSJdCnByaW50KCJQcm9maWxvIiwgbmFtZSwgdXVpZCkKUGF0aCgiL3RtcC9yZWZ1cmJ4LXByb2ZpbGUtdXVpZC50eHQiKS53cml0ZV90ZXh0KHV1aWQgKyAiXG4iKQpwcm9qZWN0ID0gUGF0aCgiUmVmdXJiWC54Y29kZXByb2ovcHJvamVjdC5wYnhwcm9qIikKdGV4dCA9IHByb2plY3QucmVhZF90ZXh0KCkucmVwbGFjZSgiQ09ERV9TSUdOX1NUWUxFID0gQXV0b21hdGljOyIsICJDT0RFX1NJR05fU1RZTEUgPSBNYW51YWw7IikKbmVlZGxlID0gIlBST0RVQ1RfQlVORExFX0lERU5USUZJRVIgPSBldS5yZWZ1cmJ4LmRpYWdub3N0aWNzOyIKaWYgIlBST1ZJU0lPTklOR19QUk9GSUxFX1NQRUNJRklFUiIgbm90IGluIHRleHQ6CiAgICBpZiBuZWVkbGUgbm90IGluIHRleHQ6CiAgICAgICAgc3lzLmV4aXQoIkJ1bmRsZSBpZCBub24gdHJvdmF0byBuZWwgcHJvZ2V0dG8gWGNvZGUiKQogICAgZXh0cmEgPSAoCiAgICAgICAgbmVlZGxlCiAgICAgICAgKyAnXG5cdFx0XHRcdENPREVfU0lHTl9JREVOVElUWSA9ICJBcHBsZSBEaXN0cmlidXRpb24iOycKICAgICAgICArICJcblx0XHRcdFx0REVWRUxPUE1FTlRfVEVBTSA9IEw5RjQ3TEpDODY7IgogICAgICAgICsgZidcblx0XHRcdFx0UFJPVklTSU9OSU5HX1BST0ZJTEUgPSAie3V1aWR9IjsnCiAgICAgICAgKyBmJ1xuXHRcdFx0XHRQUk9WSVNJT05JTkdfUFJPRklMRV9TUEVDSUZJRVIgPSAie25hbWV9IjsnCiAgICApCiAgICB0ZXh0ID0gdGV4dC5yZXBsYWNlKG5lZWRsZSwgZXh0cmEpCnByb2plY3Qud3JpdGVfdGV4dCh0ZXh0KQpwbGlzdCA9IGYnJyc8P3htbCB2ZXJzaW9uPSIxLjAiIGVuY29kaW5nPSJVVEYtOCI/Pgo8IURPQ1RZUEUgcGxpc3QgUFVCTElDICItLy9BcHBsZS8vRFREIFBMSVNUIDEuMC8vRU4iICJodHRwOi8vd3d3LmFwcGxlLmNvbS9EVERzL1Byb3BlcnR5TGlzdC0xLjAuZHRkIj4KPHBsaXN0IHZlcnNpb249IjEuMCI+PGRpY3Q+CjxrZXk+bWV0aG9kPC9rZXk+PHN0cmluZz5hcHAtc3RvcmUtY29ubmVjdDwvc3RyaW5nPgo8a2V5PnRlYW1JRDwva2V5PjxzdHJpbmc+TDlGNDdMSkM4Njwvc3RyaW5nPgo8a2V5PnNpZ25pbmdTdHlsZTwva2V5PjxzdHJpbmc+bWFudWFsPC9zdHJpbmc+CjxrZXk+cHJvdmlzaW9uaW5nUHJvZmlsZXM8L2tleT4KPGRpY3Q+PGtleT5ldS5yZWZ1cmJ4LmRpYWdub3N0aWNzPC9rZXk+PHN0cmluZz57bmFtZX08L3N0cmluZz48L2RpY3Q+CjxrZXk+dXBsb2FkU3ltYm9sczwva2V5Pjx0cnVlLz4KPC9kaWN0PjwvcGxpc3Q+CicnJwpQYXRoLmhvbWUoKS5qb2lucGF0aCgiZXhwb3J0X29wdGlvbnMucGxpc3QiKS53cml0ZV90ZXh0KHBsaXN0KQo= | base64 -D > /tmp/apply_profile.py
+          python3 /tmp/apply_profile.py
       - name: Compila l'app
         script: |
-          xcode-project build-ipa --project "$CM_BUILD_DIR/RefurbX.xcodeproj" --scheme RefurbX
+          set -euo pipefail
+          UUID="$(tr -d '[:space:]' < /tmp/refurbx-profile-uuid.txt)"
+          xcode-project build-ipa --project "$CM_BUILD_DIR/RefurbX.xcodeproj" --scheme RefurbX --export-options-plist "$HOME/export_options.plist" --archive-xcargs "COMPILER_INDEX_STORE_ENABLE=NO DEVELOPMENT_TEAM=L9F47LJC86 PROVISIONING_PROFILE=${UUID} PROVISIONING_PROFILE_SPECIFIER=${UUID}"
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
