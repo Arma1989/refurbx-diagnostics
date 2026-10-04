@@ -9,9 +9,6 @@ workflows:
       events: []
     environment:
       xcode: latest
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: eu.refurbx.diagnostics
     scripts:
       - name: Genera il progetto Xcode
         script: |
