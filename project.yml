@@ -8,6 +8,7 @@ settings:
     DEVELOPMENT_TEAM: L9F47LJC86
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.0"
+    SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
 targets:
   RefurbX:
     type: application
@@ -20,13 +21,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: eu.refurbx.diagnostics
-        MARKETING_VERSION: "1.0.8"
-        CURRENT_PROJECT_VERSION: "9"
+        MARKETING_VERSION: "1.0.9"
+        CURRENT_PROJECT_VERSION: "10"
         TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_FILE: RefurbX/Info.plist
         CODE_SIGN_ENTITLEMENTS: RefurbX/RefurbX.entitlements
         DEVELOPMENT_TEAM: L9F47LJC86
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-    dependencies:
-      - sdk: CoreNFC.framework
