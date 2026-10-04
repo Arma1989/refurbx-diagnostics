@@ -1,6 +1,7 @@
 import ARKit
 import AudioToolbox
 import AVFoundation
+import CoreLocation
 import SwiftUI
 import UIKit
 
@@ -157,6 +158,7 @@ final class DiagModel: ObservableObject {
         case "replay-vibration":
             pulseVibration()
         case "replay-mic":
+            AudioRoute.speaker()
             playback?.currentTime = 0
             playback?.play()
         case "replay-flash":
@@ -1136,10 +1138,7 @@ final class DiagModel: ObservableObject {
                     self.settle("microphone", "skip", "Permesso microfono negato")
                     return
                 }
-                let session = AVAudioSession.sharedInstance()
-                try? session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
-                try? session.setActive(true)
-                self.micQueue = session.availableInputs?.first { $0.portType == .builtInMic }?.dataSources ?? []
+                self.micQueue = AudioRoute.micSources()
                 self.micCursor = 0
                 self.micLines = []
                 self.micBad = false
@@ -1170,7 +1169,9 @@ final class DiagModel: ObservableObject {
             Task { @MainActor in
                 guard self.micToken == token, self.still("microphone") else { return }
                 if let url {
+                    AudioRoute.speaker()
                     self.playback = try? AVAudioPlayer(contentsOf: url)
+                    self.playback?.prepareToPlay()
                     self.playback?.play()
                 }
                 let loud = min(100, Int(rms * 250))

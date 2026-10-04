@@ -36,16 +36,10 @@ final class TonePlayer {
 
     func play(earpiece: Bool, pan: Float = 0) {
         stop()
-        let session = AVAudioSession.sharedInstance()
-        do {
-            if earpiece {
-                try session.setCategory(.playAndRecord, mode: .voiceChat, options: [])
-            } else {
-                try session.setCategory(.playback, mode: .default, options: [])
-            }
-            try session.setActive(true)
-        } catch {
-            return
+        if earpiece {
+            AudioRoute.earpiece()
+        } else {
+            AudioRoute.speaker()
         }
         guard let url = prepareTone(sweep: !earpiece) else { return }
         player = try? AVAudioPlayer(contentsOf: url)
@@ -77,7 +71,7 @@ final class TonePlayer {
                 freq = 520
             }
             phase += 2 * Double.pi * freq / Double(rate)
-            samples.append(Int16(sin(phase) * (sweep ? 14000 : 12000)))
+            samples.append(Int16(sin(phase) * (sweep ? 16000 : 22000)))
         }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(sweep ? "refurbx-sweep.wav" : "refurbx-ear.wav")
         do {
@@ -119,6 +113,85 @@ final class TonePlayer {
     }
 }
 
+enum AudioRoute {
+    static func deactivate() {
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+    }
+
+    static func builtInMic() -> AVAudioSessionPortDescription? {
+        AVAudioSession.sharedInstance().availableInputs?.first { $0.portType == .builtInMic }
+    }
+
+    static func micSources() -> [AVAudioSessionDataSourceDescription] {
+        let session = AVAudioSession.sharedInstance()
+        deactivate()
+        try? session.setCategory(.playAndRecord, mode: .measurement, options: [])
+        try? session.setActive(true)
+        let sources = builtInMic()?.dataSources ?? []
+        func rank(_ source: AVAudioSessionDataSourceDescription) -> Int {
+            switch source.orientation {
+            case .bottom: return 0
+            case .front, .top: return 1
+            case .back: return 2
+            default:
+                switch source.location {
+                case .lower: return 0
+                case .upper: return 1
+                default: return 5
+                }
+            }
+        }
+        var seen = Set<String>()
+        var ordered: [AVAudioSessionDataSourceDescription] = []
+        for source in sources.sorted(by: { rank($0) < rank($1) }) {
+            let key = "\(source.orientation?.rawValue ?? -1)-\(source.location?.rawValue ?? -1)-\(source.dataSourceName)"
+            if seen.contains(key) { continue }
+            seen.insert(key)
+            ordered.append(source)
+        }
+        return ordered
+    }
+
+    static func prepareMic(_ source: AVAudioSessionDataSourceDescription?) {
+        let session = AVAudioSession.sharedInstance()
+        deactivate()
+        try? session.setCategory(.playAndRecord, mode: .measurement, options: [])
+        if let builtIn = builtInMic() {
+            if let source {
+                try? builtIn.setPreferredDataSource(source)
+                if let patterns = source.supportedPolarPatterns {
+                    if patterns.contains(.omnidirectional) {
+                        try? source.setPreferredPolarPattern(.omnidirectional)
+                    } else if let pattern = patterns.first {
+                        try? source.setPreferredPolarPattern(pattern)
+                    }
+                }
+            }
+            try? session.setPreferredInput(builtIn)
+        }
+        try? session.setActive(true)
+    }
+
+    static func speaker() {
+        let session = AVAudioSession.sharedInstance()
+        deactivate()
+        try? session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+        try? session.overrideOutputAudioPort(.speaker)
+        try? session.setActive(true)
+    }
+
+    static func earpiece() {
+        let session = AVAudioSession.sharedInstance()
+        deactivate()
+        try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [])
+        try? session.overrideOutputAudioPort(.none)
+        if let builtIn = builtInMic() {
+            try? session.setPreferredInput(builtIn)
+        }
+        try? session.setActive(true)
+    }
+}
+
 final class MicProbe {
     private var recorder: AVAudioRecorder?
     private var timer: Timer?
@@ -127,14 +200,8 @@ final class MicProbe {
 
     func record(seconds: TimeInterval, source: AVAudioSessionDataSourceDescription? = nil, onLevel: @escaping (Int) -> Void, done: @escaping (Double, URL?) -> Void) {
         stop()
-        let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
-            try session.setActive(true)
-            if let source, let builtIn = session.availableInputs?.first(where: { $0.portType == .builtInMic }) {
-                try builtIn.setPreferredDataSource(source)
-                try session.setPreferredInput(builtIn)
-            }
+            AudioRoute.prepareMic(source)
             try? FileManager.default.removeItem(at: url)
             let settings: [String: Any] = [
                 AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
