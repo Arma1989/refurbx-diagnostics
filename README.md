@@ -1,6 +1,8 @@
-# RefurbX Diagnostica per iPhone
+# RefurbX Diagnostica per iPhone e iPad
 
-App nativa dei test, versione 1.0.25 (build 26). Sull'iPhone il nome è **RefurbX Diagnostica**. Team ID `L9F47LJC86`, bundle `eu.refurbx.diagnostics`.
+App nativa dei test, versione 1.0.32 (build 33). Sul dispositivo il nome è **RefurbX Diagnostica**. Gira su iPhone e iPad. Team ID `L9F47LJC86`, bundle `eu.refurbx.diagnostics`.
+
+Le prove che questo modello non ha restano in fondo, scure, e non partono. Su un altro dispositivo si accendono da sole: la penna sugli iPad che la ricevono, il 3D Touch sugli iPhone che lo hanno ancora.
 
 A fine diagnosi, nella scheda, incolla il link del banco e premi **Invia al banco**. Codemagic carica l'app su TestFlight senza inviarla ogni volta alla revisione beta: quel limite di Apple si era già esaurito. I tester interni la installano subito. La revisione per i tester esterni si fa a mano, una volta, da App Store Connect.
 
