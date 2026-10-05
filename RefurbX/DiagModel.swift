@@ -294,7 +294,7 @@ final class DiagModel: ObservableObject {
         let mark = gradeOf(outcomes)
         let model = Machine.identifier
         var lines = [
-            "RefurbX Diagnostics",
+            "RefurbX Diagnostica",
             "\(model) · iOS \(UIDevice.current.systemVersion)",
             "Grado \(mark.letter) · \(mark.label) · \(mark.score)/100",
             "Vetro \(lookGlass)/5 · Retro \(lookBack)/5 · Scocca \(lookBody)/5",

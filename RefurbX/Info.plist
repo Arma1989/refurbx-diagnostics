@@ -5,7 +5,7 @@
   <key>CFBundleDevelopmentRegion</key>
   <string>it</string>
   <key>CFBundleDisplayName</key>
-  <string>RefurbX Diagnostics</string>
+  <string>RefurbX Diagnostica</string>
   <key>CFBundleExecutable</key>
   <string>$(EXECUTABLE_NAME)</string>
   <key>CFBundleIdentifier</key>
@@ -17,9 +17,9 @@
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0.14</string>
+  <string>1.0.15</string>
   <key>CFBundleVersion</key>
-  <string>15</string>
+  <string>16</string>
   <key>ITSAppUsesNonExemptEncryption</key>
   <false/>
   <key>LSRequiresIPhoneOS</key>
