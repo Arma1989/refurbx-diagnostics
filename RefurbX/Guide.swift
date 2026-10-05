@@ -39,7 +39,7 @@ private enum GuideCopy {
         case "memory": return "Mostro il totale, lo spazio libero e quello usato del telefono."
         case "network": return "Controllo che il Wi-Fi sia acceso. La password non viene letta."
         case "display": return "Lo schermo cambia colore. Tocca per andare avanti e cerca macchie o pixel spenti."
-        case "touch": return "Trascina un dito su tutte le celle, anche sui bordi."
+        case "touch": return "Le celle sono piccole. Trascina un dito su tutte, anche sui bordi."
         case "multitouch": return "Appoggia due dita insieme, come nell'esempio."
         case "force": return "Questo schermo non misura la pressione. Il test resta non disponibile."
         case "stylus": return "L'iPhone non riceve la Apple Pencil. Il test resta non disponibile."
@@ -60,7 +60,7 @@ private enum GuideCopy {
         case "accelerometer": return "Inclina il telefono verso i quattro bordi, come la pallina."
         case "gyroscope": return "Tienilo fermo, poi ruotalo di lato, avanti e intorno a te."
         case "compass": return "Tienilo in piano e giralo finché l'anello si riempie."
-        case "gps": return "Consente la posizione precisa. Il numero in metri arriva da solo; vicino a una finestra è più rapido."
+        case "gps": return "Consente la posizione precisa. Si apre una mappa con il punto reale: confermi tu quando è quello giusto."
         case "bluetooth": return "Controllo che il Bluetooth si accenda. Se compare la richiesta, consenti."
         case "nfc": return "Si apre la lettura NFC. Avvicina un tag vero al retro, in alto."
         case "volume_up": return "Premi il tasto volume più, sul fianco."
@@ -93,24 +93,34 @@ private struct PhoneChrome<Content: View>: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 40, style: .continuous)
-                .fill(Color(red: 0.07, green: 0.09, blue: 0.16))
-            RoundedRectangle(cornerRadius: 32, style: .continuous)
-                .fill(Color.white.opacity(0.03))
-                .padding(7)
+            RoundedRectangle(cornerRadius: 42, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.16, green: 0.20, blue: 0.30), Color(red: 0.05, green: 0.07, blue: 0.12)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            RoundedRectangle(cornerRadius: 34, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+                .padding(8)
             content()
-            RoundedRectangle(cornerRadius: 40, style: .continuous)
-                .stroke(Color.white.opacity(0.42), lineWidth: 3)
+            RoundedRectangle(cornerRadius: 42, style: .continuous)
+                .stroke(
+                    LinearGradient(colors: [Color.white.opacity(0.7), cyan.opacity(0.35), Color.white.opacity(0.18)], startPoint: .top, endPoint: .bottom),
+                    lineWidth: 2
+                )
         }
         .aspectRatio(188.0 / 360.0, contentMode: .fit)
-        .frame(maxWidth: 188, maxHeight: 340)
+        .frame(maxWidth: 200, maxHeight: 360)
         .overlay(alignment: .top) {
             Capsule()
-                .fill(Color.black.opacity(0.88))
-                .frame(width: 72, height: 22)
+                .fill(Color.black.opacity(0.92))
+                .frame(width: 78, height: 24)
+                .overlay(Circle().fill(Color.white.opacity(0.18)).frame(width: 8, height: 8).offset(x: 22))
                 .padding(.top, 16)
         }
-        .shadow(color: cyan.opacity(0.22), radius: 28, y: 12)
+        .shadow(color: cyan.opacity(0.28), radius: 32, y: 16)
     }
 }
 

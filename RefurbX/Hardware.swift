@@ -905,8 +905,8 @@ enum DiskProbe {
     }
 }
 
-final class TagProbe: NSObject, NFCNDEFReaderSessionDelegate {
-    private var session: NFCNDEFReaderSession?
+final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
+    private var session: NFCTagReaderSession?
     private var reported = false
     private let lock = NSLock()
     var onResult: ((String, String) -> Void)?
@@ -915,11 +915,14 @@ final class TagProbe: NSObject, NFCNDEFReaderSessionDelegate {
         lock.lock()
         reported = false
         lock.unlock()
-        guard NFCNDEFReaderSession.readingAvailable else {
+        guard NFCTagReaderSession.readingAvailable else {
             finish("absent", "Questo iPhone non legge i tag NFC")
             return
         }
-        let session = NFCNDEFReaderSession(delegate: self, queue: nil, invalidateAfterFirstRead: false)
+        guard let session = NFCTagReaderSession(pollingOption: [.iso14443, .iso15693, .iso18092], delegate: self, queue: nil) else {
+            finish("absent", "Lettura NFC non disponibile")
+            return
+        }
         session.alertMessage = "Avvicina un tag NFC al retro, in alto."
         self.session = session
         session.begin()
@@ -931,14 +934,22 @@ final class TagProbe: NSObject, NFCNDEFReaderSessionDelegate {
         onResult = nil
     }
 
-    func readerSession(_ session: NFCNDEFReaderSession, didDetect tags: [NFCNDEFTag]) {
+    func tagReaderSessionDidBecomeActive(_ session: NFCTagReaderSession) {}
+
+    func tagReaderSession(_ session: NFCTagReaderSession, didDetect tags: [NFCTag]) {
         guard let tag = tags.first else { return }
         session.connect(to: tag) { error in
             if error != nil {
                 session.invalidate(errorMessage: "Tag non collegato")
                 return
             }
-            tag.readNDEF { message, _ in
+            guard let ndef = self.ndefTag(tag) else {
+                session.alertMessage = "Tag NFC visto"
+                self.finish("pass", "Tag NFC visto")
+                session.invalidate()
+                return
+            }
+            ndef.readNDEF { message, _ in
                 let count = message?.records.count ?? 0
                 session.alertMessage = count > 0 ? "Tag NFC letto" : "Tag NFC visto"
                 let note = count > 0 ? "Tag NFC letto, \(count) record" : "Tag NFC visto"
@@ -948,20 +959,22 @@ final class TagProbe: NSObject, NFCNDEFReaderSessionDelegate {
         }
     }
 
-    func readerSession(_ session: NFCNDEFReaderSession, didDetectNDEFs messages: [NFCNDEFMessage]) {
-        let count = messages.reduce(0) { $0 + $1.records.count }
-        session.alertMessage = "Tag NFC letto"
-        finish("pass", count > 0 ? "Tag NFC letto, \(count) record" : "Tag NFC letto")
-        session.invalidate()
-    }
-
-    func readerSession(_ session: NFCNDEFReaderSession, didInvalidateWithError error: Error) {
+    func tagReaderSession(_ session: NFCTagReaderSession, didInvalidateWithError error: Error) {
         let code = (error as? NFCReaderError)?.code
-        if code == .readerSessionInvalidationErrorFirstNDEFTagRead { return }
         if code == .readerSessionInvalidationErrorUserCanceled {
             finish("cancel", "")
         } else {
             finish("fail", "NFC non ha letto un tag")
+        }
+    }
+
+    private func ndefTag(_ tag: NFCTag) -> NFCNDEFTag? {
+        switch tag {
+        case .miFare(let value): return value
+        case .iso7816(let value): return value
+        case .iso15693(let value): return value
+        case .feliCa(let value): return value
+        @unknown default: return nil
         }
     }
 

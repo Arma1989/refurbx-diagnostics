@@ -14,10 +14,21 @@ enum Look {
         ZStack {
             navy
             RadialGradient(
-                colors: [Color(red: 0.10, green: 0.22, blue: 0.38).opacity(0.85), navy],
+                colors: [Color(red: 0.12, green: 0.28, blue: 0.46).opacity(0.9), navy.opacity(0.2)],
                 center: .top,
+                startRadius: 10,
+                endRadius: 420
+            )
+            RadialGradient(
+                colors: [cyan.opacity(0.16), .clear],
+                center: .bottomTrailing,
                 startRadius: 20,
-                endRadius: 520
+                endRadius: 280
+            )
+            LinearGradient(
+                colors: [.clear, Color.black.opacity(0.28)],
+                startPoint: .center,
+                endPoint: .bottom
             )
         }
         .ignoresSafeArea()
@@ -35,10 +46,18 @@ struct StepHeader: View {
         VStack(alignment: .leading, spacing: 10) {
             ProgressView(value: Double(index + 1), total: Double(max(total, 1)))
                 .tint(Look.cyan)
-            Text("\(group.uppercased())  ·  \(index + 1) / \(total)")
-                .font(.system(size: 13, weight: .semibold))
-                .tracking(0.8)
-                .foregroundStyle(Look.cyan)
+            HStack(spacing: 8) {
+                Text(group.uppercased())
+                    .font(.system(size: 12, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundStyle(Look.navy)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Look.cyan, in: Capsule())
+                Text("\(index + 1) / \(total)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Look.mute)
+            }
             Text(title)
                 .font(.system(size: 34, weight: .semibold))
                 .foregroundStyle(.white)
@@ -67,6 +86,10 @@ struct BenchButton: View {
                 .frame(maxWidth: .infinity, minHeight: 54)
                 .foregroundStyle(ink)
                 .background(fill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(kind == .secondary ? Look.line : Color.clear, lineWidth: 1)
+                )
         }
         .buttonStyle(.plain)
     }

@@ -1,3 +1,4 @@
+import MapKit
 import SwiftUI
 
 private let navy = Look.navy
@@ -51,14 +52,29 @@ private struct IntroScreen: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("REFURBX")
-                .font(.system(size: 13, weight: .semibold))
-                .tracking(1.4)
-                .foregroundStyle(cyan)
-            Text("Diagnosi")
-                .font(.system(size: 40, weight: .semibold))
-                .foregroundStyle(.white)
-            Text("Scegli tutte le prove, oppure solo il gruppo che ti serve.")
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(cyan.opacity(0.16))
+                        .frame(width: 52, height: 52)
+                    Circle()
+                        .stroke(cyan.opacity(0.55), lineWidth: 1)
+                        .frame(width: 52, height: 52)
+                    Image(systemName: "iphone")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(cyan)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("REFURBX")
+                        .font(.system(size: 13, weight: .semibold))
+                        .tracking(1.4)
+                        .foregroundStyle(cyan)
+                    Text("Diagnostica")
+                        .font(.system(size: 34, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+            Text("Scegli tutte le prove, oppure un solo banco: audio, fotocamere, sensori.")
                 .font(.system(size: 17))
                 .foregroundStyle(Look.ink)
             if canResume {
@@ -69,19 +85,42 @@ private struct IntroScreen: View {
                 VStack(spacing: 8) {
                     ForEach(Catalog.groups, id: \.self) { group in
                         Button(action: { startGroup(group) }) {
-                            HStack {
-                                Text(Catalog.homeTitle(group))
-                                    .font(.system(size: 17, weight: .semibold))
+                            HStack(spacing: 14) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(cyan.opacity(0.14))
+                                        .frame(width: 40, height: 40)
+                                    Image(systemName: Catalog.symbol(group))
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundStyle(cyan)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(Catalog.homeTitle(group))
+                                        .font(.system(size: 17, weight: .semibold))
+                                    Text(Catalog.homeLine(group))
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(Look.mute)
+                                }
                                 Spacer()
                                 Text("\(Catalog.count(group))")
                                     .font(.system(size: 15, weight: .semibold))
                                     .foregroundStyle(Look.mute)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(Look.mute)
                             }
                             .foregroundStyle(.white)
-                            .padding(.horizontal, 16)
-                            .frame(minHeight: 54)
-                            .background(Look.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Look.line, lineWidth: 1))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(Look.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .overlay(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(cyan)
+                                    .frame(width: 3)
+                                    .padding(.vertical, 14)
+                                    .padding(.leading, 0)
+                            }
+                            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Look.line, lineWidth: 1))
                         }
                         .buttonStyle(.plain)
                     }
@@ -131,7 +170,7 @@ private struct RunScreen: View {
         if model.currentId == "memory" {
             MemoryBoard(total: model.memoryTotal, free: model.memoryFree, used: model.memoryUsed)
         } else if model.currentId == "gps" {
-            GpsBoard(accuracy: model.gpsAccuracy)
+            GpsBoard(accuracy: model.gpsAccuracy, latitude: model.gpsLatitude, longitude: model.gpsLongitude)
         } else if model.currentId == "multitouch" {
             MultiPane(count: model.fingers, onCount: { model.fingers = $0 }, onPass: { model.settle("multitouch", "pass", "\($0) dita") })
         } else if model.currentId == "accelerometer" {
@@ -219,17 +258,32 @@ private struct ReportScreen: View {
                     .tracking(1.2)
                     .foregroundStyle(cyan)
                 BenchCard {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Grado")
-                            .font(.system(size: 13, weight: .semibold))
-                            .tracking(0.6)
-                            .foregroundStyle(Look.mute)
-                        Text(mark.letter)
-                            .font(.system(size: 72, weight: .semibold))
-                            .foregroundStyle(.white)
-                        Text("\(mark.label) · \(mark.score)/100")
-                            .font(.system(size: 17))
-                            .foregroundStyle(Look.ink)
+                    HStack(alignment: .center, spacing: 18) {
+                        ZStack {
+                            Circle()
+                                .stroke(Color.white.opacity(0.12), lineWidth: 8)
+                            Circle()
+                                .trim(from: 0, to: CGFloat(mark.score) / 100)
+                                .stroke(cyan, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                                .rotationEffect(.degrees(-90))
+                            Text(mark.letter)
+                                .font(.system(size: 40, weight: .semibold))
+                                .foregroundStyle(.white)
+                        }
+                        .frame(width: 92, height: 92)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("GRADO")
+                                .font(.system(size: 13, weight: .semibold))
+                                .tracking(0.8)
+                                .foregroundStyle(cyan)
+                            Text(mark.label)
+                                .font(.system(size: 28, weight: .semibold))
+                                .foregroundStyle(.white)
+                            Text("\(mark.score) su 100")
+                                .font(.system(size: 17))
+                                .foregroundStyle(Look.ink)
+                        }
+                        Spacer(minLength: 0)
                     }
                 }
                 BenchCard {
@@ -480,21 +534,56 @@ private struct MemoryBoard: View {
 
 private struct GpsBoard: View {
     let accuracy: String
+    let latitude: Double?
+    let longitude: Double?
+    @State private var position: MapCameraPosition = .automatic
 
     var body: some View {
         VStack(spacing: 12) {
-            Text("GPS")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(cyan)
+            map
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Look.line, lineWidth: 1)
+                )
             Text(accuracy.isEmpty ? "In attesa" : accuracy)
-                .font(.system(size: 56, weight: .semibold))
+                .font(.system(size: 28, weight: .semibold))
                 .foregroundStyle(.white)
-                .minimumScaleFactor(0.5)
-            Text("Precisione reale, senza mappa.")
-                .font(.footnote)
-                .foregroundStyle(Look.mute)
+                .minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder private var map: some View {
+        if let latitude, let longitude {
+            Map(position: $position) {
+                Marker("Fix", coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude))
+            }
+            .mapStyle(.standard)
+            .onAppear { recenter(latitude, longitude) }
+            .onChange(of: latitude) { _, value in recenter(value, longitude) }
+            .onChange(of: longitude) { _, value in recenter(latitude, value) }
+        } else {
+            ZStack {
+                Look.card
+                VStack(spacing: 8) {
+                    Image(systemName: "location.magnifyingglass")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(cyan)
+                    Text("In cerca del punto")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+    }
+
+    private func recenter(_ latitude: Double, _ longitude: Double) {
+        position = .region(MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+            span: MKCoordinateSpan(latitudeDelta: 0.004, longitudeDelta: 0.004)
+        ))
     }
 }
 
@@ -520,21 +609,34 @@ private struct TouchGrid: UIViewRepresentable {
 final class TouchGridView: UIView {
     var onProgress: ((Int, Int) -> Void)?
     var onPass: (() -> Void)?
-    private let columns = 5
-    private let rows = 8
-    private var hit = Array(repeating: false, count: 40)
+    private let cell: CGFloat = 28
+    private var columns = 8
+    private var rows = 12
+    private var hit: [Bool] = []
     private var sent = false
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        rebuildIfNeeded()
         setNeedsDisplay()
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { paint(touches) }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { paint(touches) }
 
-    private func paint(_ touches: Set<UITouch>) {
+    private func rebuildIfNeeded() {
         guard bounds.width > 1, bounds.height > 1 else { return }
+        let nextColumns = max(8, Int(bounds.width / cell))
+        let nextRows = max(12, Int(bounds.height / cell))
+        if nextColumns == columns, nextRows == rows, hit.count == nextColumns * nextRows { return }
+        columns = nextColumns
+        rows = nextRows
+        hit = Array(repeating: false, count: columns * rows)
+        sent = false
+    }
+
+    private func paint(_ touches: Set<UITouch>) {
+        guard bounds.width > 1, bounds.height > 1, !hit.isEmpty else { return }
         let width = bounds.width / CGFloat(columns)
         let height = bounds.height / CGFloat(rows)
         for touch in touches {
@@ -553,7 +655,7 @@ final class TouchGridView: UIView {
     }
 
     override func draw(_ rect: CGRect) {
-        guard bounds.width > 1, bounds.height > 1 else { return }
+        guard bounds.width > 1, bounds.height > 1, !hit.isEmpty else { return }
         let width = bounds.width / CGFloat(columns)
         let height = bounds.height / CGFloat(rows)
         for row in 0..<rows {
@@ -563,8 +665,13 @@ final class TouchGridView: UIView {
                     ? UIColor(red: 0.12, green: 0.66, blue: 0.48, alpha: 1)
                     : UIColor(red: 0.14, green: 0.19, blue: 0.34, alpha: 1)
                 color.setFill()
-                let box = CGRect(x: CGFloat(column) * width + 2, y: CGFloat(row) * height + 2, width: width - 4, height: height - 4)
-                UIBezierPath(roundedRect: box, cornerRadius: 8).fill()
+                let box = CGRect(
+                    x: CGFloat(column) * width + 1,
+                    y: CGFloat(row) * height + 1,
+                    width: max(1, width - 2),
+                    height: max(1, height - 2)
+                )
+                UIBezierPath(roundedRect: box, cornerRadius: 3).fill()
             }
         }
     }

@@ -55,6 +55,8 @@ final class DiagModel: ObservableObject {
     @Published var memoryFree = ""
     @Published var memoryUsed = ""
     @Published var gpsAccuracy = ""
+    @Published var gpsLatitude: Double?
+    @Published var gpsLongitude: Double?
     @Published var plan: [String] = []
 
     var planCount: Int { max(plan.count, 1) }
@@ -352,6 +354,8 @@ final class DiagModel: ObservableObject {
         memoryFree = ""
         memoryUsed = ""
         gpsAccuracy = ""
+        gpsLatitude = nil
+        gpsLongitude = nil
         bestGps = nil
         sawUnplugged = false
     }
@@ -375,7 +379,7 @@ final class DiagModel: ObservableObject {
         case "network": readNetwork()
         case "display": hint = "Tocca lo schermo per passare di colore. Poi conferma se è uniforme."
         case "touch":
-            hint = "Trascina il dito su tutte le celle, anche i bordi. Una cella spenta è una zona morta."
+            hint = "Le celle sono piccole. Trascina il dito su tutte, anche i bordi. Una cella spenta è una zona morta."
             actions = [
                 Act(label: "Zona morta", status: "fail", note: "Una zona del touch non risponde"),
                 Act(label: "Salta", status: "skip", note: "Non eseguito"),
@@ -661,9 +665,11 @@ final class DiagModel: ObservableObject {
     }
 
     private func startGps() {
-        hint = "Cerco il satellite. Se iOS chiede la posizione, consenti e scegli Precisa."
+        hint = "Cerco il satellite. Se iOS chiede la posizione, consenti e scegli Precisa. La mappa resta aperta finché non confermi."
         detail = "In cerca"
         gpsAccuracy = "In cerca"
+        gpsLatitude = nil
+        gpsLongitude = nil
         bestGps = nil
         actions = [
             Act(label: "Apri Impostazioni", status: "open-settings", note: ""),
@@ -676,15 +682,17 @@ final class DiagModel: ObservableObject {
             let meters = max(0, Int(location.horizontalAccuracy.rounded()))
             let lat = String(format: "%.5f", location.coordinate.latitude)
             let lon = String(format: "%.5f", location.coordinate.longitude)
+            self.gpsLatitude = location.coordinate.latitude
+            self.gpsLongitude = location.coordinate.longitude
             self.gpsAccuracy = "±\(meters) m"
             self.detail = "±\(meters) m · \(lat), \(lon)"
             if location.horizontalAccuracy <= 100 {
-                self.settle("gps", "pass", "Fix ±\(meters) m")
-                return
+                self.hint = "Posizione corretta. Conferma se il punto sulla mappa è quello giusto."
+            } else {
+                self.hint = "Fix largo. La mappa resta aperta: avvicinati a una finestra oppure accetta questo punto."
             }
-            self.hint = "Fix largo. Avvicinati a una finestra, oppure consenti la posizione precisa."
             self.actions = [
-                Act(label: "Accetta ±\(meters) m", status: "pass", note: "Fix ±\(meters) m"),
+                Act(label: "Posizione corretta", status: "pass", note: "Fix ±\(meters) m"),
                 Act(label: "Apri Impostazioni", status: "open-settings", note: ""),
                 Act(label: "Nessun fix", status: "skip", note: "Nessun fix utile"),
             ]

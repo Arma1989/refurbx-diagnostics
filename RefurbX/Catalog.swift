@@ -76,6 +76,36 @@ enum Catalog {
         group == "Foto" ? "Fotocamere" : group
     }
 
+    static func homeLine(_ group: String) -> String {
+        switch group {
+        case "Sistema": return "Modello, batteria, memoria"
+        case "Schermo": return "Colori e touch"
+        case "Audio": return "Speaker, microfoni, vibrazione"
+        case "Foto": return "Obiettivi e profondità"
+        case "Sensori": return "Movimento, bussola, GPS"
+        case "Connettività": return "Bluetooth e NFC"
+        case "Tasti": return "Volume, accensione, silenzioso"
+        case "Energia": return "Cavo e wireless"
+        case "Sicurezza": return "Face ID o Touch ID"
+        default: return "\(count(group)) prove"
+        }
+    }
+
+    static func symbol(_ group: String) -> String {
+        switch group {
+        case "Sistema": return "cpu"
+        case "Schermo": return "rectangle.inset.filled"
+        case "Audio": return "speaker.wave.2.fill"
+        case "Foto": return "camera.fill"
+        case "Sensori": return "gyroscope"
+        case "Connettività": return "antenna.radiowaves.left.and.right"
+        case "Tasti": return "button.horizontal.top.press.fill"
+        case "Energia": return "bolt.fill"
+        case "Sicurezza": return "faceid"
+        default: return "circle"
+        }
+    }
+
     static func title(_ id: String) -> String {
         rows.first { $0.id == id }?.title ?? id
     }
