@@ -24,7 +24,7 @@ struct GuideScreen: View {
         .padding(.top, 16)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             ActionBar {
-                BenchButton(title: "Inizia") { model.beginCurrent() }
+                BenchButton(title: model.currentId == "nfc" ? "Apri lettore tag" : "Inizia") { model.beginCurrent() }
                 BenchButton(title: "Salta", kind: .secondary) { model.skipCurrent() }
             }
         }
@@ -34,7 +34,7 @@ struct GuideScreen: View {
 private enum GuideCopy {
     static func line(_ id: String) -> String {
         switch id {
-        case "identity": return "Leggo modello, sistema e risoluzione. Resta qualche secondo, così puoi leggerli."
+        case "identity": return "Mostro il nome commerciale e il codice di fabbrica, per esempio iPhone 17 Pro Max e iPhone18,2."
         case "memory": return "Mostro il totale, lo spazio libero e quello usato del telefono."
         case "network": return "Controllo se il Wi-Fi è collegato. Se non lo è, collega il Wi-Fi e riprova."
         case "display": return "Lo schermo cambia colore. Tocca per andare avanti e cerca macchie o pixel spenti."
@@ -44,7 +44,7 @@ private enum GuideCopy {
         case "stylus": return "La penna compare solo se questo modello la riceve."
         case "speaker": return "Una nota sale dall'altoparlante in basso. Poi confermi a mano se è chiara."
         case "earpiece": return "Avvicina l'orecchio alla capsula in alto, segnata nell'esempio."
-        case "microphone": return "Ogni microfono registra quattro secondi. Poi riascolti e confermi a mano."
+        case "microphone": return "Ogni microfono registra due secondi e mezzo. Poi riascolti e confermi a mano."
         case "vibration": return "Il telefono vibra tre volte. Confermi solo se lo senti in mano."
         case "call": return "Tienilo come in chiamata. Il suono deve uscire solo dalla capsula in alto."
         case "headphones": return "Collega le cuffie se le hai. Se non le hai, salta."
@@ -61,7 +61,7 @@ private enum GuideCopy {
         case "compass": return "Tienilo in piano e giralo finché l'anello si riempie."
         case "gps": return "Consente la posizione precisa. Si apre una mappa con il punto reale: confermi tu quando è quello giusto."
         case "bluetooth": return "Resta sulla schermata. Si vede se il Bluetooth è acceso. Se è spento, accendilo e riprova."
-        case "nfc": return "Appoggia la scheda sul retro, in alto, e tienila ferma. Il test passa appena il telefono la vede, anche se è una scheda Google."
+        case "nfc": return "Premi Apri lettore tag. Si apre la finestra di Apple: tieni la scheda ferma sul retro, in alto."
         case "volume_up": return "Premi volume più. Compare una spunta appena il tasto risponde."
         case "volume_down": return "Premi volume meno. Compare una spunta appena il tasto risponde."
         case "power_button": return "Premi il tasto di accensione, poi riapri lo schermo."

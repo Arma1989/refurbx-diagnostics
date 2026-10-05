@@ -59,6 +59,89 @@ enum Machine {
         let major = rest.split(separator: ",").first ?? ""
         return Int(major)
     }
+
+    static var commercialName: String? {
+        names[identifier]
+    }
+
+    static var modelName: String {
+        commercialName ?? identifier
+    }
+
+    static var described: String {
+        let code = identifier
+        guard let name = commercialName else { return code }
+        return "\(name) · \(code)"
+    }
+
+    private static let names: [String: String] = [
+        "iPhone19,2": "iPhone 18 Pro",
+        "iPhone19,3": "iPhone 18 Pro Max",
+        "iPhone19,7": "iPhone 18 Pro Max",
+        "iPhone18,1": "iPhone 17 Pro",
+        "iPhone18,2": "iPhone 17 Pro Max",
+        "iPhone18,3": "iPhone 17",
+        "iPhone18,4": "iPhone Air",
+        "iPhone18,5": "iPhone 17e",
+        "iPhone17,1": "iPhone 16 Pro",
+        "iPhone17,2": "iPhone 16 Pro Max",
+        "iPhone17,3": "iPhone 16",
+        "iPhone17,4": "iPhone 16 Plus",
+        "iPhone17,5": "iPhone 16e",
+        "iPhone16,1": "iPhone 15 Pro",
+        "iPhone16,2": "iPhone 15 Pro Max",
+        "iPhone15,4": "iPhone 15",
+        "iPhone15,5": "iPhone 15 Plus",
+        "iPhone15,2": "iPhone 14 Pro",
+        "iPhone15,3": "iPhone 14 Pro Max",
+        "iPhone14,7": "iPhone 14",
+        "iPhone14,8": "iPhone 14 Plus",
+        "iPhone14,6": "iPhone SE (2022)",
+        "iPhone14,2": "iPhone 13 Pro",
+        "iPhone14,3": "iPhone 13 Pro Max",
+        "iPhone14,4": "iPhone 13 mini",
+        "iPhone14,5": "iPhone 13",
+        "iPhone13,1": "iPhone 12 mini",
+        "iPhone13,2": "iPhone 12",
+        "iPhone13,3": "iPhone 12 Pro",
+        "iPhone13,4": "iPhone 12 Pro Max",
+        "iPhone12,1": "iPhone 11",
+        "iPhone12,3": "iPhone 11 Pro",
+        "iPhone12,5": "iPhone 11 Pro Max",
+        "iPhone12,8": "iPhone SE (2020)",
+        "iPhone11,2": "iPhone XS",
+        "iPhone11,4": "iPhone XS Max",
+        "iPhone11,6": "iPhone XS Max",
+        "iPhone11,8": "iPhone XR",
+        "iPhone10,3": "iPhone X",
+        "iPhone10,6": "iPhone X",
+        "iPhone10,2": "iPhone 8 Plus",
+        "iPhone10,5": "iPhone 8 Plus",
+        "iPhone10,1": "iPhone 8",
+        "iPhone10,4": "iPhone 8",
+        "iPhone9,2": "iPhone 7 Plus",
+        "iPhone9,4": "iPhone 7 Plus",
+        "iPhone9,1": "iPhone 7",
+        "iPhone9,3": "iPhone 7",
+        "iPhone8,4": "iPhone SE (2016)",
+        "iPhone8,1": "iPhone 6s",
+        "iPhone8,2": "iPhone 6s Plus",
+        "iPhone7,2": "iPhone 6",
+        "iPhone7,1": "iPhone 6 Plus",
+        "iPhone6,1": "iPhone 5s",
+        "iPhone6,2": "iPhone 5s",
+        "iPhone5,3": "iPhone 5c",
+        "iPhone5,4": "iPhone 5c",
+        "iPhone5,1": "iPhone 5",
+        "iPhone5,2": "iPhone 5",
+        "iPhone4,1": "iPhone 4s",
+        "iPhone3,1": "iPhone 4",
+        "iPhone3,2": "iPhone 4",
+        "iPhone3,3": "iPhone 4",
+        "iPhone2,1": "iPhone 3GS",
+        "iPhone1,2": "iPhone 3G",
+        "iPhone1,1": "iPhone",
+    ]
 }
 
 final class TonePlayer {
@@ -1027,20 +1110,28 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
     private var generation = 0
     private let lock = NSLock()
     var onResult: ((String, String) -> Void)?
+    var onActive: (() -> Void)?
 
-    func start() {
-        DispatchQueue.main.async { self.beginSession() }
+    @discardableResult
+    func beginNow() -> Bool {
+        if !Thread.isMainThread {
+            DispatchQueue.main.sync { _ = self.beginSession() }
+            return session != nil
+        }
+        return beginSession()
     }
 
     func stop() {
         generation += 1
         onResult = nil
+        onActive = nil
         let current = session
         session = nil
         current?.invalidate()
     }
 
-    private func beginSession() {
+    @discardableResult
+    private func beginSession() -> Bool {
         generation += 1
         let token = generation
         lock.lock()
@@ -1051,18 +1142,23 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
         previous?.invalidate()
         guard NFCTagReaderSession.readingAvailable else {
             finish("absent", "Questo iPhone non legge i tag NFC", token: token)
-            return
+            return false
         }
         guard let session = NFCTagReaderSession(pollingOption: [.iso14443, .iso15693, .iso18092], delegate: self, queue: nil) else {
             finish("absent", "Lettura NFC non disponibile", token: token)
-            return
+            return false
         }
         session.alertMessage = "Tieni la scheda ferma sul retro, in alto."
         self.session = session
         session.begin()
+        return true
     }
 
-    func tagReaderSessionDidBecomeActive(_ session: NFCTagReaderSession) {}
+    func tagReaderSessionDidBecomeActive(_ session: NFCTagReaderSession) {
+        guard session === self.session else { return }
+        let callback = onActive
+        DispatchQueue.main.async { callback?() }
+    }
 
     func tagReaderSession(_ session: NFCTagReaderSession, didDetect tags: [NFCTag]) {
         guard session === self.session, let tag = tags.first else { return }
@@ -1083,15 +1179,15 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
             return
         }
         if code == .readerSessionInvalidationErrorSessionTimeout {
-            finish("closed", "Tempo scaduto. Premi Leggi tag e tieni la scheda ferma sul retro, in alto.")
+            finish("closed", "Tempo scaduto. Premi Apri lettore tag e tieni la scheda ferma sul retro, in alto.")
             return
         }
         if code == .readerSessionInvalidationErrorSystemIsBusy {
-            finish("closed", "NFC occupato. Chiudi le altre finestre e premi Leggi tag.")
+            finish("closed", "NFC occupato. Chiudi le altre finestre e premi Apri lettore tag.")
             return
         }
         let text = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        finish("closed", text.isEmpty ? "La finestra NFC si è chiusa. Premi Leggi tag." : text)
+        finish("closed", text.isEmpty ? "La finestra NFC si è chiusa. Premi Apri lettore tag." : text)
     }
 
     private static func kind(_ tag: NFCTag) -> String {

@@ -173,8 +173,9 @@ private struct RunScreen: View {
             MemoryBoard(total: model.memoryTotal, free: model.memoryFree, used: model.memoryUsed)
         } else if model.currentId == "identity" {
             Text(model.detail.isEmpty ? "Lettura del modello" : model.detail)
-                .font(.system(size: 22, weight: .semibold))
+                .font(.system(size: 28, weight: .semibold))
                 .foregroundStyle(.white)
+                .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else if model.currentId == "network" || model.currentId == "bluetooth" {
             KeyMark(on: model.keyOk, waiting: model.detail.isEmpty ? "Controllo" : model.detail)

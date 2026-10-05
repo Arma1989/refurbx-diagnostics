@@ -330,7 +330,7 @@ final class DiagModel: ObservableObject {
 
     func shareText() -> String {
         let choice = Cosmetic.find(lookGrade)
-        let model = Machine.identifier
+        let model = Machine.described
         var lines = [
             "RefurbX Diagnostica",
             "\(model) · iOS \(UIDevice.current.systemVersion)",
@@ -362,7 +362,7 @@ final class DiagModel: ObservableObject {
             title: choice.title,
             line: choice.line,
             when: when,
-            device: "\(Machine.identifier) · iOS \(UIDevice.current.systemVersion)",
+            device: "\(Machine.described) · iOS \(UIDevice.current.systemVersion)",
             cable: withCable,
             box: withBox,
             rows: rows
@@ -395,7 +395,7 @@ final class DiagModel: ObservableObject {
             "device": [
                 "userAgent": "RefurbX Diagnostica",
                 "platform": "ios",
-                "model": Machine.identifier,
+                "model": Machine.described,
                 "os": "iOS \(UIDevice.current.systemVersion)",
                 "screen": screen,
                 "dpr": scale,
@@ -579,14 +579,15 @@ final class DiagModel: ObservableObject {
     }
 
     private func readIdentity() {
-        let model = Machine.identifier
+        let code = Machine.identifier
+        let name = Machine.commercialName
         let os = "iOS \(UIDevice.current.systemVersion)"
         let scale = UIScreen.main.scale
         let points = "\(Int(UIScreen.main.bounds.width))×\(Int(UIScreen.main.bounds.height))"
         let pixels = "\(Int(UIScreen.main.bounds.width * scale))×\(Int(UIScreen.main.bounds.height * scale))"
-        let note = "\(model) · \(os) · \(points) pt · \(pixels) px"
-        hint = "Modello letto. Resta un attimo così puoi leggerlo."
-        detail = note
+        let note = "\(Machine.described) · \(os) · \(points) pt · \(pixels) px"
+        hint = "\(os) · \(points) pt · \(pixels) px"
+        detail = name == nil ? "Codice di fabbrica \(code)" : "\(name ?? "")\nCodice di fabbrica \(code)"
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         later(3) { self.settle("identity", "pass", note) }
     }
@@ -640,13 +641,27 @@ final class DiagModel: ObservableObject {
     }
 
     private func startNfc() {
-        hint = "Si apre la finestra di sistema. Appoggia la scheda sul retro, in alto, e tienila ferma finché non compare NFC ok."
-        detail = ""
-        actions = [
-            Act(label: "Leggi tag", status: "nfc-retry", note: ""),
+        hint = "Si apre il lettore tag di Apple. Tieni la scheda ferma sul retro, in alto."
+        detail = "Apro il lettore"
+        actions = nfcActions()
+        armNfc()
+        openNfcSheet()
+    }
+
+    private func nfcActions() -> [Act] {
+        [
+            Act(label: "Apri lettore tag", status: "nfc-retry", note: ""),
             Act(label: "Non legge", status: "fail", note: "NFC non ha letto un tag"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
+    }
+
+    private func armNfc() {
+        tags.onActive = { [weak self] in
+            guard let self, self.still("nfc") else { return }
+            self.detail = "Lettore tag aperto"
+            self.hint = "Finestra di Apple aperta. Tieni la scheda ferma sul retro, in alto, finché non compare NFC ok."
+        }
         tags.onResult = { [weak self] status, note in
             guard let self, self.still("nfc") else { return }
             if status == "pass" {
@@ -658,29 +673,22 @@ final class DiagModel: ObservableObject {
                 return
             }
             self.hint = status == "cancel"
-                ? "Lettura chiusa. Premi Leggi tag e tieni la scheda ferma sul retro, in alto."
-                : (note.isEmpty ? "La finestra NFC si è chiusa prima del tag. Premi Leggi tag." : note)
-            self.detail = "Nessun tag registrato"
-            self.actions = [
-                Act(label: "Leggi tag", status: "nfc-retry", note: ""),
-                Act(label: "Non legge", status: "fail", note: "NFC non ha letto un tag"),
-                Act(label: "Salta", status: "skip", note: "Non eseguito"),
-            ]
-        }
-        nfcAttempt += 1
-        let attempt = nfcAttempt
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            guard let self, self.still("nfc"), attempt == self.nfcAttempt else { return }
-            self.tags.start()
+                ? "Lettura chiusa. Premi Apri lettore tag e tieni la scheda ferma sul retro, in alto."
+                : (note.isEmpty ? "La finestra NFC si è chiusa prima del tag. Premi Apri lettore tag." : note)
+            self.detail = "Lettore chiuso"
+            self.actions = self.nfcActions()
         }
     }
 
     private func openNfcSheet() {
         guard still("nfc") else { return }
         nfcAttempt += 1
-        hint = "Tieni la scheda ferma sul retro, in alto. Appena il telefono la vede, il test passa."
-        detail = "Finestra di lettura aperta"
-        tags.start()
+        let opened = tags.beginNow()
+        if opened {
+            hint = "Si apre il lettore tag di Apple. Tieni la scheda ferma sul retro, in alto."
+            detail = "Lettore tag in apertura"
+        }
+        actions = nfcActions()
     }
 
     private func startSpeaker() {
@@ -1363,7 +1371,7 @@ final class DiagModel: ObservableObject {
 
     private func recordMic() {
         guard still("microphone") else { return }
-        hint = "Parla per quattro secondi. Poi riascolti la voce."
+        hint = "Parla per due secondi e mezzo. Poi riascolti la voce."
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         AVAudioApplication.requestRecordPermission { granted in
             DispatchQueue.main.async {
@@ -1390,10 +1398,10 @@ final class DiagModel: ObservableObject {
         micLevel = 0
         micToken += 1
         let token = micToken
-        hint = "Parla verso \(micLabel.lowercased()), segnato sul disegno, per quattro secondi. Poi confermi a mano: il livello da solo non basta."
+        hint = "Parla verso \(micLabel.lowercased()), segnato sul disegno, per due secondi e mezzo. Poi confermi a mano: il livello da solo non basta."
         detail = micQueue.count > 1 ? "\(micCursor + 1) di \(micQueue.count)" : micLabel
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
-        mic.record(seconds: 4, source: source, onLevel: { level in
+        mic.record(seconds: 2.5, source: source, onLevel: { level in
             Task { @MainActor in
                 guard self.micToken == token, self.still("microphone") else { return }
                 self.micLevel = min(100, level / 4)
@@ -1423,7 +1431,7 @@ final class DiagModel: ObservableObject {
                 self.actions = items
             }
         })
-        later(9) {
+        later(7) {
             guard self.micToken == token, self.still("microphone"), self.actions.count < 2 else { return }
             self.hint = "La registrazione non è arrivata."
             self.actions = [
