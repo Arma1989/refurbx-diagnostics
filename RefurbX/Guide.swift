@@ -44,13 +44,13 @@ private enum GuideCopy {
         case "memory": return "Mostro il totale, lo spazio libero e quello usato del telefono."
         case "network": return "Controllo se il Wi-Fi è collegato. Se non lo è, collega il Wi-Fi e riprova."
         case "display": return "Lo schermo cambia colore. Tocca per andare avanti e cerca macchie o pixel spenti."
-        case "touch": return "Le celle sono piccole. Trascina un dito su tutte, anche sui bordi."
+        case "touch": return "Trascina un dito su tutte le celle, anche sui bordi."
         case "multitouch": return "Appoggia due dita insieme, come nell'esempio."
         case "force": return "Premi piano e poi forte nel riquadro. Questo schermo misura la pressione."
         case "stylus": return "Scrivi con la Apple Pencil. Il dito non fa passare il test."
         case "speaker": return "Una nota sale dall'altoparlante in basso. Poi confermi a mano se è chiara."
         case "earpiece": return "Avvicina l'orecchio alla capsula in alto, segnata nell'esempio."
-        case "microphone": return "Ogni microfono registra due secondi e mezzo. Poi riascolti e confermi a mano."
+        case "microphone": return "Basso, fronte e posteriore: ognuno registra due secondi e mezzo. Poi riascolti e confermi a mano."
         case "vibration": return "Il telefono vibra tre volte. Confermi solo se lo senti in mano."
         case "call": return "Tienilo come in chiamata. Il suono deve uscire solo dalla capsula in alto."
         case "headphones": return "Collega le cuffie se le hai. Se non le hai, salta."
@@ -64,14 +64,18 @@ private enum GuideCopy {
         case "light": return "Metti una luce sul sensore davanti, in alto, poi toglila. La percentuale deve scendere subito."
         case "accelerometer": return "Inclina il telefono verso i quattro bordi, come la pallina."
         case "gyroscope": return "Tienilo fermo, poi inclinalo di lato, avanti e giralo. I tre assi devono muoversi."
-        case "compass": return "Tienilo in piano. Il numero è la direzione della parte alta. Gira finché i punti si accendono."
+        case "compass": return "Tienilo in piano e fai un giro completo. Si accendono 8 punti. Finché manca un punto, il test non va avanti."
         case "gps": return "Consente la posizione precisa. Si apre una mappa con il punto reale: confermi tu quando è quello giusto."
         case "bluetooth": return "Resta sulla schermata. Si vede se il Bluetooth è acceso. Se è spento, accendilo e riprova."
         case "nfc": return "Premi Apri lettore tag. Si apre la finestra di Apple: tieni la scheda ferma sul retro, in alto."
         case "volume_up": return "Premi volume più. Compare una spunta appena il tasto risponde."
         case "volume_down": return "Premi volume meno. Compare una spunta appena il tasto risponde."
         case "power_button": return "Premi il tasto di accensione, poi riapri lo schermo."
-        case "mute_switch": return "Su questo iPhone il tasto Azione non dice all'app se l'hai premuto."
+        case "mute_switch":
+            if HardwareFit.usesActionButton {
+                return "Premi il tasto Azione. Lo stato in grande diventa Suono o Silenzioso. La spunta compare solo se cambia davvero."
+            }
+            return "Sposta l'interruttore. Lo stato in grande diventa Suono o Silenzioso. La spunta compare solo se cambia davvero."
         case "charging": return "Collega il cavo. Il test passa quando il sistema vede la carica."
         case "wireless": return "Stacca il cavo e appoggia il telefono sul pad. Passa solo se, da staccato, torna in carica."
         case "biometrics": return "Usa il volto o l'impronta, se il telefono la chiede."
@@ -266,7 +270,7 @@ private struct DemoScene: View {
             Circle().fill(spot == 1 ? cyan : Color.white.opacity(0.25)).frame(width: 14, height: 14).offset(y: -108)
             Circle().fill(spot == 2 ? cyan : Color.white.opacity(0.25)).frame(width: 14, height: 14).offset(x: 48, y: -78)
             Capsule().fill(spot == 0 ? cyan : Color.white.opacity(0.25)).frame(width: 36, height: 8).offset(y: 118)
-            Text(spot == 0 ? "Basso" : spot == 1 ? "Alto" : "Dietro")
+            Text(spot == 0 ? "Basso" : spot == 1 ? "Fronte" : "Retro")
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.white)
         }

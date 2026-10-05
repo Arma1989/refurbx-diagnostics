@@ -90,6 +90,47 @@ enum Catalog {
         }
     }
 
+    static func testSymbol(_ id: String) -> String {
+        switch id {
+        case "identity": return HardwareFit.pad ? "ipad" : "iphone"
+        case "memory": return "memorychip"
+        case "network": return "wifi"
+        case "display": return "rectangle.inset.filled"
+        case "touch": return "hand.tap.fill"
+        case "multitouch": return "hand.raised.fingers.spread.fill"
+        case "force": return "hand.point.up.left.fill"
+        case "stylus": return "pencil.tip"
+        case "speaker": return "speaker.wave.2.fill"
+        case "earpiece": return "ear"
+        case "microphone": return "mic.fill"
+        case "vibration": return "iphone.radiowaves.left.and.right"
+        case "call": return "phone.fill"
+        case "headphones": return "headphones"
+        case "camera_back": return "camera.fill"
+        case "camera_front": return "person.crop.rectangle.fill"
+        case "autofocus": return "viewfinder"
+        case "flash": return "bolt.fill"
+        case "truedepth": return "faceid"
+        case "lidar": return "cube.transparent"
+        case "proximity": return "dot.radiowaves.up.forward"
+        case "light": return "sun.max.fill"
+        case "accelerometer": return "move.3d"
+        case "gyroscope": return "gyroscope"
+        case "compass": return "location.north.line"
+        case "gps": return "location.fill"
+        case "bluetooth": return "antenna.radiowaves.left.and.right"
+        case "nfc": return "wave.3.right"
+        case "volume_up": return "speaker.plus.fill"
+        case "volume_down": return "speaker.minus.fill"
+        case "power_button": return "power"
+        case "mute_switch": return "bell.slash.fill"
+        case "charging": return "cable.connector"
+        case "wireless": return "battery.100.bolt"
+        case "biometrics": return "lock.fill"
+        default: return "circle"
+        }
+    }
+
     static func symbol(_ group: String) -> String {
         switch group {
         case "Sistema": return "cpu"

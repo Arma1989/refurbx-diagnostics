@@ -31,8 +31,7 @@ enum HardwareFit {
         case "autofocus":
             return CameraSession.hasAutofocus()
         case "mute_switch":
-            guard let major = Machine.iphoneMajor else { return false }
-            return major <= 15
+            return hasSilentControl
         case "wireless":
             if pad { return false }
             guard let major = Machine.iphoneMajor else { return true }
@@ -53,6 +52,18 @@ enum HardwareFit {
         if major >= 7 { return true }
         if major == 6, let minor = Machine.ipadMinor, (3...8).contains(minor) { return true }
         return false
+    }
+
+    /// Every iPhone can silence the ringer. 15 Pro and later use the Action button.
+    static var usesActionButton: Bool {
+        guard let major = Machine.iphoneMajor else { return false }
+        return major >= 16
+    }
+
+    static var hasSilentControl: Bool {
+        if Machine.iphoneMajor != nil { return true }
+        guard let major = Machine.ipadMajor else { return false }
+        return major <= 7 || major == 11 || major == 12
     }
 
     static func rows(in group: String?) -> [Catalog.Row] {
@@ -358,6 +369,26 @@ final class TonePlayer {
     }
 }
 
+enum MicSeat {
+    case bottom, front, back
+
+    var title: String {
+        switch self {
+        case .bottom: return "Microfono in basso"
+        case .front: return "Microfono frontale"
+        case .back: return "Microfono posteriore"
+        }
+    }
+
+    var spot: String {
+        switch self {
+        case .bottom: return "bottom"
+        case .front: return "front"
+        case .back: return "back"
+        }
+    }
+}
+
 enum AudioRoute {
     static func deactivate() {
         try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
@@ -367,40 +398,79 @@ enum AudioRoute {
         AVAudioSession.sharedInstance().availableInputs?.first { $0.portType == .builtInMic }
     }
 
+    /// One real source per seat, in order basso, fronte, posteriore.
+    /// A rear step exists only when a source is actually back/rear. Upper alone stays front.
     static func micSources() -> [AVAudioSessionDataSourceDescription] {
         let session = AVAudioSession.sharedInstance()
         deactivate()
-        try? session.setCategory(.playAndRecord, mode: .measurement, options: [])
+        try? session.setCategory(.playAndRecord, mode: .videoRecording, options: [])
         try? session.setActive(true)
-        let sources = builtInMic()?.dataSources ?? []
-        func rank(_ source: AVAudioSessionDataSourceDescription) -> Int {
-            switch source.orientation {
-            case .bottom: return 0
-            case .front, .top: return 1
-            case .back: return 2
-            default:
-                switch source.location {
-                case .lower: return 0
-                case .upper: return 1
-                default: return 5
-                }
+        guard let builtIn = builtInMic() else { return [] }
+        try? session.setPreferredInput(builtIn)
+        var byID: [NSNumber: AVAudioSessionDataSourceDescription] = [:]
+        for source in builtIn.dataSources ?? [] {
+            byID[source.dataSourceID] = source
+        }
+        for source in session.inputDataSources ?? [] where byID[source.dataSourceID] == nil {
+            byID[source.dataSourceID] = source
+        }
+        var chosen: [MicSeat: AVAudioSessionDataSourceDescription] = [:]
+        for source in byID.values {
+            guard let seat = micSeat(for: source) else { continue }
+            if let existing = chosen[seat] {
+                if prefers(source, over: existing, for: seat) { chosen[seat] = source }
+            } else {
+                chosen[seat] = source
             }
         }
-        var seen = Set<String>()
-        var ordered: [AVAudioSessionDataSourceDescription] = []
-        for source in sources.sorted(by: { rank($0) < rank($1) }) {
-            let key = "\(source.orientation.map { "\($0)" } ?? "-")-\(source.location.map { "\($0)" } ?? "-")-\(source.dataSourceName)"
-            if seen.contains(key) { continue }
-            seen.insert(key)
-            ordered.append(source)
+        return [MicSeat.bottom, .front, .back].compactMap { chosen[$0] }
+    }
+
+    static func micSeat(for source: AVAudioSessionDataSourceDescription) -> MicSeat? {
+        let orientation = source.orientation?.rawValue.lowercased() ?? ""
+        let location = source.location?.rawValue.lowercased() ?? ""
+        let name = source.dataSourceName.lowercased()
+        if orientation == "back" || orientation.contains("rear") { return .back }
+        if orientation == "bottom" || orientation == "lower" { return .bottom }
+        if orientation == "front" { return .front }
+        if orientation == "top" { return .front }
+        if isRearName(name) || isRearName(location) { return .back }
+        if isFrontName(name) { return .front }
+        if isBottomName(name) { return .bottom }
+        if location == "lower" { return .bottom }
+        if location == "upper" { return .front }
+        return nil
+    }
+
+    private static func isRearName(_ value: String) -> Bool {
+        value.contains("back") || value.contains("rear") || value.contains("posterior")
+            || value.contains("posteriore") || value.contains("retro") || value.contains("dietro")
+    }
+
+    private static func isFrontName(_ value: String) -> Bool {
+        value.contains("front") || value.contains("frontal") || value.contains("fronte") || value.contains("davanti")
+    }
+
+    private static func isBottomName(_ value: String) -> Bool {
+        value.contains("bottom") || value.contains("lower") || value.contains("basso")
+    }
+
+    private static func prefers(_ candidate: AVAudioSessionDataSourceDescription, over current: AVAudioSessionDataSourceDescription, for seat: MicSeat) -> Bool {
+        func score(_ source: AVAudioSessionDataSourceDescription) -> Int {
+            let raw = source.orientation?.rawValue.lowercased() ?? ""
+            switch seat {
+            case .back: return raw == "back" || raw.contains("rear") ? 2 : 1
+            case .front: return raw == "front" ? 2 : 1
+            case .bottom: return raw == "bottom" ? 2 : 1
+            }
         }
-        return ordered
+        return score(candidate) > score(current)
     }
 
     static func prepareMic(_ source: AVAudioSessionDataSourceDescription?) {
         let session = AVAudioSession.sharedInstance()
         deactivate()
-        try? session.setCategory(.playAndRecord, mode: .measurement, options: [])
+        try? session.setCategory(.playAndRecord, mode: .videoRecording, options: [])
         if let builtIn = builtInMic() {
             if let source {
                 try? builtIn.setPreferredDataSource(source)
@@ -494,13 +564,16 @@ final class MicProbe {
     }
 }
 
-final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate {
+final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVCaptureVideoDataOutputSampleBufferDelegate {
     let session = AVCaptureSession()
     private let queue = DispatchQueue(label: "refurbx.camera")
+    private let meterQueue = DispatchQueue(label: "refurbx.light")
     private var focusObservation: NSKeyValueObservation?
     private var lastLens: Float?
     private var focusGeneration = 0
     private var onCodeHandler: ((String) -> Void)?
+    private var meterHandler: ((Double) -> Void)?
+    private var meterClock = Date.distantPast
 
     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
         guard let code = metadataObjects.compactMap({ $0 as? AVMetadataMachineReadableCodeObject }).first(where: { $0.type == .qr }),
@@ -516,7 +589,7 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate {
         }
     }
 
-    func start(front: Bool, lens: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, scanQR: Bool = false, onFocus: @escaping () -> Void, onCode: @escaping (String) -> Void = { _ in }, onRunning: @escaping () -> Void, onError: @escaping (String) -> Void) {
+    func start(front: Bool, lens: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, scanQR: Bool = false, onFocus: @escaping () -> Void, onCode: @escaping (String) -> Void = { _ in }, onRunning: @escaping () -> Void, onError: @escaping (String) -> Void, onMeter: ((Double) -> Void)? = nil) {
         focusGeneration += 1
         let generation = focusGeneration
         onCodeHandler = nil
@@ -536,6 +609,16 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate {
                 return
             }
             self.session.addInput(input)
+            self.meterHandler = onMeter
+            if onMeter != nil {
+                let video = AVCaptureVideoDataOutput()
+                video.alwaysDiscardsLateVideoFrames = true
+                video.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+                video.setSampleBufferDelegate(self, queue: self.meterQueue)
+                if self.session.canAddOutput(video) {
+                    self.session.addOutput(video)
+                }
+            }
             var metadata: AVCaptureMetadataOutput?
             if scanQR {
                 let output = AVCaptureMetadataOutput()
@@ -584,9 +667,51 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate {
         }
     }
 
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        let now = Date()
+        guard now.timeIntervalSince(meterClock) >= 0.08 else { return }
+        meterClock = now
+        guard let pixel = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let luma = Self.meanLuma(pixel)
+        let handler = meterHandler
+        DispatchQueue.main.async { handler?(luma) }
+    }
+
+    private static func meanLuma(_ pixel: CVPixelBuffer) -> Double {
+        CVPixelBufferLockBaseAddress(pixel, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixel, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(pixel) else { return 0 }
+        guard CVPixelBufferGetPixelFormatType(pixel) == kCVPixelFormatType_32BGRA else { return 0 }
+        let width = CVPixelBufferGetWidth(pixel)
+        let height = CVPixelBufferGetHeight(pixel)
+        let stride = CVPixelBufferGetBytesPerRow(pixel)
+        let step = 28
+        var sum = 0.0
+        var count = 0
+        var y = 0
+        while y < height {
+            let row = base.advanced(by: y * stride).assumingMemoryBound(to: UInt8.self)
+            var x = 0
+            while x < width {
+                let index = x * 4
+                if index + 2 >= stride { break }
+                let blue = Double(row[index])
+                let green = Double(row[index + 1])
+                let red = Double(row[index + 2])
+                sum += 0.0722 * blue + 0.7152 * green + 0.2126 * red
+                count += 1
+                x += step
+            }
+            y += step
+        }
+        guard count > 0 else { return 0 }
+        return sum / Double(count) / 255.0
+    }
+
     func stop(done: (() -> Void)? = nil) {
         focusGeneration += 1
         onCodeHandler = nil
+        meterHandler = nil
         queue.async {
             if self.session.isRunning { self.session.stopRunning() }
             DispatchQueue.main.async {
@@ -1376,6 +1501,13 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
             return
         }
         let text = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let missing = code == .readerErrorSecurityViolation
+            || text.localizedCaseInsensitiveContains("entitlement")
+            || text.localizedCaseInsensitiveContains("missing required")
+        if missing {
+            finish("closed", "Manca il permesso NFC nella build firmata. Serve NFC Tag Reading in formato TAG, senza NDEF. Salvalo su developer.apple.com e installa questa build.", token: token)
+            return
+        }
         finish("closed", text.isEmpty ? "La finestra NFC si è chiusa. Premi Apri lettore tag." : text, token: token)
     }
 

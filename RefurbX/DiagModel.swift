@@ -103,11 +103,20 @@ final class DiagModel: ObservableObject {
     private var volumePrevious: Float = -1
     private var volumeTimer: Timer?
     private var volumeObservation: NSKeyValueObservation?
+    private var volumeHost: MPVolumeView?
+    private var volumeArmed = true
+    private var muteSound: SystemSoundID = 0
+    private var muteToken = 0
+    private var muteBaseline: Bool?
+    private var muteReads = 0
+    private var muteStreak = 0
     private var lightWarm = 0
     private var lightFloor = 0.0
     private var lightCeil = 0.0
     private var lightBase = 0.0
     private var lightPeak = 0.0
+    private var lightFrames = 0
+    private var lightUsesFrames = false
     private var lightSawDark = false
     private var lightSawBright = false
     private var playback: AVAudioPlayer?
@@ -128,7 +137,12 @@ final class DiagModel: ObservableObject {
     private var openedLenses: [String] = []
 
     func begin(group: String?) {
-        let chosen = HardwareFit.rows(in: group)
+        begin(ids: HardwareFit.rows(in: group).map(\.id))
+    }
+
+    func begin(ids: [String]) {
+        let allowed = Set(ids)
+        let chosen = Catalog.rows.filter { allowed.contains($0.id) && HardwareFit.supports($0.id) }
         guard !chosen.isEmpty else { return }
         UIDevice.current.isBatteryMonitoringEnabled = true
         plan = chosen.map(\.id)
@@ -325,8 +339,9 @@ final class DiagModel: ObservableObject {
         outcomes.removeAll { $0.id == id }
         outcomes.append(Outcome(id: id, status: status, note: String(note.prefix(300))))
         let cameraWasOpen = showCamera
+        let leaveAtOnce = id == "autofocus"
         actions = []
-        cleanup(releaseCamera: !cameraWasOpen)
+        cleanup(releaseCamera: !cameraWasOpen || leaveAtOnce)
         let proceed = { [weak self] in
             guard let self else { return }
             guard self.index + 1 < self.plan.count else {
@@ -341,6 +356,12 @@ final class DiagModel: ObservableObject {
             self.index += 1
             self.remember()
             self.enter()
+        }
+        if leaveAtOnce {
+            camera.setTorch(false) { _ in }
+            camera.stop()
+            DispatchQueue.main.async { proceed() }
+            return
         }
         guard cameraWasOpen else {
             DispatchQueue.main.async { proceed() }
@@ -503,6 +524,8 @@ final class DiagModel: ObservableObject {
         lightCeil = 0
         lightBase = 0
         lightPeak = 0
+        lightFrames = 0
+        lightUsesFrames = false
         lightSawDark = false
         lightSawBright = false
         if row.id == "nfc" {
@@ -528,7 +551,7 @@ final class DiagModel: ObservableObject {
         case "network": readNetwork()
         case "display": hint = "Tocca lo schermo per passare di colore. Poi conferma se è uniforme."
         case "touch":
-            hint = "Le celle sono piccole. Trascina il dito su tutte, anche i bordi. Una cella spenta è una zona morta."
+            hint = "Trascina il dito su tutte le celle, anche i bordi. Una cella spenta è una zona morta."
             actions = [
                 Act(label: "Zona morta", status: "fail", note: "Una zona del touch non risponde"),
                 Act(label: "Salta", status: "skip", note: "Non eseguito"),
@@ -706,10 +729,8 @@ final class DiagModel: ObservableObject {
     private func armNfc() {
         tags.onOpened = { [weak self] _ in
             guard let self, self.still("nfc") else { return }
-            self.phase = "run"
             self.hint = "Si apre il lettore tag di Apple, dal basso. Tieni la scheda ferma sul retro, in alto."
             self.detail = "Lettore tag in apertura"
-            self.actions = self.nfcActions()
         }
         tags.onActive = { [weak self] in
             guard let self, self.still("nfc") else { return }
@@ -865,6 +886,7 @@ final class DiagModel: ObservableObject {
         try? session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
         try? session.setActive(true)
         keyOk = false
+        volumeArmed = true
         volumePrevious = session.outputVolume
         let id = up ? "volume_up" : "volume_down"
         if up && volumePrevious > 0.95 {
@@ -890,20 +912,75 @@ final class DiagModel: ObservableObject {
         }
         let timer = Timer(timeInterval: 0.12, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self else { return }
-                let now = session.outputVolume
-                self.noteVolume(up: up, previous: self.volumePrevious, now: now)
-                self.volumePrevious = now
+                guard let self, self.volumeArmed else { return }
+                let sessionNow = session.outputVolume
+                let sliderNow = self.volumeSlider()?.value
+                self.noteVolume(up: up, previous: self.volumePrevious, now: sessionNow)
+                if let sliderNow, abs(sliderNow - sessionNow) > 0.004 {
+                    self.noteVolume(up: up, previous: self.volumePrevious, now: sliderNow)
+                }
+                self.volumePrevious = sliderNow ?? sessionNow
             }
         }
         volumeTimer = timer
         RunLoop.main.add(timer, forMode: .common)
+        mountVolumeHost()
+        if up {
+            later(0.35) { self.makeRoomForVolumeUp() }
+        }
+    }
+
+    private func mountVolumeHost() {
+        volumeHost?.removeFromSuperview()
+        let host = MPVolumeView(frame: CGRect(x: 0, y: 0, width: 180, height: 32))
+        host.showsRouteButton = false
+        host.isHidden = false
+        host.alpha = 0.02
+        let window = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }
+        window?.addSubview(host)
+        volumeHost = host
+    }
+
+    private func volumeSlider() -> UISlider? {
+        volumeHost?.subviews.compactMap { $0 as? UISlider }.first
+    }
+
+    private func makeRoomForVolumeUp() {
+        guard still("volume_up"), !keyOk else { return }
+        guard let slider = volumeSlider() else { return }
+        let current = max(slider.value, volumePrevious)
+        guard current >= 0.88 else { return }
+        volumeArmed = false
+        let lowered = max(0.2, current - 0.18)
+        slider.setValue(lowered, animated: false)
+        slider.sendActions(for: .valueChanged)
+        volumePrevious = lowered
+        hint = "Il volume era alto: l'ho abbassato un poco. Premi volume su. La spunta compare appena sale."
+        later(0.2) { self.finishVolumeArm(0) }
+    }
+
+    private func finishVolumeArm(_ tries: Int) {
+        guard still("volume_up"), !keyOk else {
+            volumeArmed = true
+            return
+        }
+        let now = AVAudioSession.sharedInstance().outputVolume
+        let slider = volumeSlider()?.value ?? now
+        if now > slider + 0.05, tries < 10 {
+            later(0.15) { self.finishVolumeArm(tries + 1) }
+            return
+        }
+        volumePrevious = now
+        volumeArmed = true
     }
 
     private func noteVolume(up: Bool, previous: Float, now: Float) {
         let id = up ? "volume_up" : "volume_down"
-        guard still(id), !keyOk, previous >= 0 else { return }
-        let hit = up ? now > previous + 0.008 : now < previous - 0.008
+        guard volumeArmed, still(id), !keyOk, previous >= 0 else { return }
+        let hit = up ? now > previous + 0.004 : now < previous - 0.004
         guard hit else { return }
         markKey(id, note: up ? "Volume su ricevuto" : "Volume giù ricevuto")
     }
@@ -934,18 +1011,127 @@ final class DiagModel: ObservableObject {
     }
 
     private func startMute() {
-        guard Self.hasRingSwitch() else {
-            settle("mute_switch", "absent", "Questo modello ha il tasto Azione, non l'interruttore silenzioso")
+        guard HardwareFit.supports("mute_switch") else {
+            settle("mute_switch", "absent", "Questo modello non ha il controllo del silenzioso")
             return
         }
-        hint = "Porta l'interruttore su Suoneria e ascolta il clic. Poi su Silenzioso: il clic di sistema non deve sentirsi. La nota musicale, se parte, non segue quell'interruttore."
+        keyOk = false
+        muteBaseline = nil
+        muteReads = 0
+        muteStreak = 0
+        muteToken += 1
+        let action = HardwareFit.usesActionButton
+        hint = action
+            ? "Premi il tasto Azione per passare da suono a silenzioso. La spunta compare solo quando lo stato cambia."
+            : "Sposta l'interruttore per passare da suono a silenzioso. La spunta compare solo quando lo stato cambia."
+        detail = "In attesa"
         actions = [
-            Act(label: "Suoneria e silenzioso ok", status: "pass", note: "Suoneria e silenzioso confermati dall'operatore"),
-            Act(label: "Non commuta", status: "fail", note: "L'interruttore non cambia il clic di sistema"),
-            Act(label: "Ascolta il clic", status: "replay-mute", note: ""),
+            Act(label: "Non commuta", status: "fail", note: action ? "Il tasto Azione non cambia il silenzioso" : "L'interruttore non cambia il silenzioso"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
-        AudioServicesPlaySystemSound(1104)
+        armMuteSample()
+    }
+
+    private func armMuteSample() {
+        guard still("mute_switch"), !keyOk else { return }
+        let sound = prepareMuteSound()
+        guard sound != 0 else {
+            hint = "Non riesco a sentire il silenzioso. Segna che non commuta, oppure salta."
+            return
+        }
+        let token = muteToken
+        let started = Date()
+        AudioServicesPlaySystemSoundWithCompletion(sound) {
+            let elapsed = Date().timeIntervalSince(started)
+            DispatchQueue.main.async {
+                guard token == self.muteToken else { return }
+                self.noteMute(elapsed: elapsed)
+            }
+        }
+    }
+
+    private func noteMute(elapsed: TimeInterval) {
+        guard still("mute_switch"), !keyOk else { return }
+        let silent = elapsed < 0.12
+        let label = silent ? "Silenzioso" : "Suono"
+        muteReads += 1
+        if muteReads == 1 {
+            detail = "In ascolto"
+            later(0.25) { self.armMuteSample() }
+            return
+        }
+        if muteBaseline == nil {
+            muteBaseline = silent
+            muteStreak = 0
+            detail = label
+            later(0.25) { self.armMuteSample() }
+            return
+        }
+        detail = label
+        guard muteBaseline != silent else {
+            muteStreak = 0
+            later(0.25) { self.armMuteSample() }
+            return
+        }
+        muteStreak += 1
+        guard muteStreak >= 2 else {
+            later(0.2) { self.armMuteSample() }
+            return
+        }
+        markKey("mute_switch", note: silent ? "Passato in silenzioso" : "Passato a suono")
+    }
+
+    private func prepareMuteSound() -> SystemSoundID {
+        if muteSound != 0 { return muteSound }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("refurbx-mute.wav")
+        let rate = 44100
+        let count = rate * 3 / 10
+        let tick = rate / 12
+        var samples = [Int16](repeating: 0, count: count)
+        var phase = 0.0
+        for index in 0..<count {
+            phase += 2 * Double.pi * 880 / Double(rate)
+            let gain = index < tick ? 4800.0 : 48.0
+            samples[index] = Int16(sin(phase) * gain)
+        }
+        do {
+            try Self.muteWav(samples: samples, rate: rate).write(to: url)
+        } catch {
+            return 0
+        }
+        var id: SystemSoundID = 0
+        guard AudioServicesCreateSystemSoundID(url as CFURL, &id) == kAudioServicesNoError, id != 0 else { return 0 }
+        muteSound = id
+        return id
+    }
+
+    private static func muteWav(samples: [Int16], rate: Int) -> Data {
+        let dataSize = samples.count * 2
+        var data = Data()
+        func append(_ string: String) { data.append(contentsOf: string.utf8) }
+        func append16(_ value: UInt16) {
+            var little = value.littleEndian
+            withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
+        }
+        func append32(_ value: UInt32) {
+            var little = value.littleEndian
+            withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
+        }
+        append("RIFF")
+        append32(UInt32(36 + dataSize))
+        append("WAVE")
+        append("fmt ")
+        append32(16)
+        append16(1)
+        append16(1)
+        append32(UInt32(rate))
+        append32(UInt32(rate * 2))
+        append16(2)
+        append16(16)
+        append("data")
+        append32(UInt32(dataSize))
+        samples.withUnsafeBytes { data.append(contentsOf: $0) }
+        return data
     }
 
     private func watchCharge() {
@@ -1271,8 +1457,10 @@ final class DiagModel: ObservableObject {
         lightSawDark = false
         lightSawBright = false
         lightPeak = 0
+        lightFrames = 0
+        lightUsesFrames = false
         showCamera = false
-        lightLevel = 1
+        lightLevel = 0.25
         hint = "Metti una luce sul sensore davanti, in alto vicino alla capsula, poi toglila. La percentuale deve scendere subito. Non è la fotocamera dietro."
         detail = "Luce davanti"
         actions = [
@@ -1280,45 +1468,52 @@ final class DiagModel: ObservableObject {
             Act(label: "Non reagisce", status: "fail", note: "Il sensore davanti non reagisce"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
-        camera.start(front: true, onFocus: {}, onRunning: { [weak self] in
+        camera.start(front: true, onFocus: {}, onRunning: {}, onError: { [weak self] _ in
             self?.pollLight()
-        }, onError: { [weak self] _ in
-            self?.pollLight()
+        }, onMeter: { [weak self] raw in
+            self?.lightUsesFrames = true
+            self?.noteAmbient(raw)
         })
+        later(1.5) {
+            guard self.still("light"), self.lightFrames == 0 else { return }
+            self.pollLight()
+        }
     }
 
     private func pollLight() {
         later(0.05) {
-            guard self.still("light") else { return }
+            guard self.still("light"), !self.lightUsesFrames else { return }
             if let raw = self.camera.ambientLevel() {
                 self.noteAmbient(raw)
             }
-            guard self.still("light") else { return }
+            guard self.still("light"), !self.lightUsesFrames else { return }
             self.pollLight()
         }
     }
 
     private func noteAmbient(_ raw: Double) {
-        guard raw.isFinite, raw > 0 else { return }
-        if lightWarm < 4 {
-            lightPeak = max(lightPeak, raw)
+        guard raw.isFinite, raw >= 0 else { return }
+        lightFrames += 1
+        if lightWarm < 5 {
+            lightBase = lightWarm == 0 ? max(raw, 0.000_1) : (lightBase * 0.6 + raw * 0.4)
             lightWarm += 1
-            lightLevel = 1
-            detail = "Luce davanti 100%"
+            lightPeak = max(lightBase * 1.8, raw)
+            let opening = min(1, raw / max(lightPeak, 0.000_1))
+            lightLevel = opening
+            detail = "Luce davanti \(Int((opening * 100).rounded()))%"
             return
         }
         if raw > lightPeak { lightPeak = raw }
-        let shown = min(1, raw / max(lightPeak, 0.000_001))
+        let shown = min(1, max(0, raw / max(lightPeak, 0.000_1)))
         lightLevel = shown
-        let percent = Int((shown * 100).rounded())
-        detail = "Luce davanti \(percent)%"
-        if shown > 0.9 { lightSawBright = true }
-        if shown < 0.45 { lightSawDark = true }
-        if lightSawBright && shown < 0.45 {
+        detail = "Luce davanti \(Int((shown * 100).rounded()))%"
+        let rose = lightPeak > max(lightBase, 0.000_1) * 1.28
+        if rose && shown > 0.82 { lightSawBright = true }
+        if lightSawBright && shown < 0.58 {
             settle("light", "pass", "La luce davanti è scesa appena tolta")
-        } else if lightSawDark && shown > 0.9 {
-            settle("light", "pass", "La luce davanti è risalita")
-        } else if lightSawBright && shown < 0.7 {
+            return
+        }
+        if lightSawBright && shown < 0.75 {
             hint = "La luce sta scendendo. Tieni la sorgente lontana dal sensore davanti."
         }
     }
@@ -1353,7 +1548,7 @@ final class DiagModel: ObservableObject {
     }
 
     private func startCompass() {
-        hint = "Tienilo in piano. Il numero è la direzione della parte alta. Gira finché i punti del quadrante si accendono."
+        hint = "Tienilo in piano. Gira piano finché si accendono tutti gli 8 punti. Il test resta qui finché il giro non è completo."
         actions = [
             Act(label: "Non gira", status: "fail", note: "La bussola non segue la rotazione"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
@@ -1367,8 +1562,8 @@ final class DiagModel: ObservableObject {
             self.compassMarks.insert(bucket)
             let degrees = Int(heading.magneticHeading.rounded()) % 360
             self.detail = String(format: "%03d° · %@ · %d di 8", degrees, Self.cardinal(heading.magneticHeading), self.compassMarks.count)
-            if self.compassMarks.count >= 6 {
-                self.settle("compass", "pass", "Anello seguito per \(self.compassMarks.count) direzioni")
+            if self.compassMarks.count >= 8 {
+                self.settle("compass", "pass", "Giro completo, 8 direzioni")
             }
         }
         place.onDenied = { [weak self] in
@@ -1553,16 +1748,21 @@ final class DiagModel: ObservableObject {
         volumeTimer = nil
         volumeObservation?.invalidate()
         volumeObservation = nil
+        volumeHost?.removeFromSuperview()
+        volumeHost = nil
+        muteToken += 1
+        muteBaseline = nil
+        muteReads = 0
+        muteStreak = 0
+        if muteSound != 0 {
+            AudioServicesDisposeSystemSoundID(muteSound)
+            muteSound = 0
+        }
         UIDevice.current.isProximityMonitoringEnabled = false
         for token in observers {
             NotificationCenter.default.removeObserver(token)
         }
         observers.removeAll()
-    }
-
-    private static func hasRingSwitch() -> Bool {
-        guard let major = Machine.iphoneMajor else { return false }
-        return major <= 15
     }
 
     private static func cardinal(_ heading: Double) -> String {
@@ -1579,39 +1779,10 @@ final class DiagModel: ObservableObject {
     }
 
     private static func micPlace(_ source: AVAudioSessionDataSourceDescription) -> (title: String, spot: String) {
-        if let orientation = source.orientation {
-            switch orientation {
-            case .back:
-                return ("Microfono posteriore", "back")
-            case .front, .top:
-                return ("Microfono frontale", "front")
-            case .bottom:
-                return ("Microfono in basso", "bottom")
-            default:
-                break
-            }
+        guard let seat = AudioRoute.micSeat(for: source) else {
+            return (source.dataSourceName, "")
         }
-        if let location = source.location {
-            switch location {
-            case .lower:
-                return ("Microfono in basso", "bottom")
-            case .upper:
-                return ("Microfono frontale", "front")
-            default:
-                break
-            }
-        }
-        let name = source.dataSourceName.lowercased()
-        if name.contains("back") || name.contains("rear") || name.contains("posterior") || name.contains("dietro") {
-            return ("Microfono posteriore", "back")
-        }
-        if name.contains("front") || name.contains("top") || name.contains("upper") || name.contains("frontal") || name.contains("davanti") || name.contains("alto") {
-            return ("Microfono frontale", "front")
-        }
-        if name.contains("bottom") || name.contains("lower") || name.contains("basso") {
-            return ("Microfono in basso", "bottom")
-        }
-        return (source.dataSourceName, "")
+        return (seat.title, seat.spot)
     }
 
     private func remember() {

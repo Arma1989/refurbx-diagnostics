@@ -34,7 +34,7 @@ struct DiagView: View {
                 IntroScreen(
                     canResume: model.canResume,
                     startAll: { model.begin(group: nil) },
-                    startGroup: { model.begin(group: $0) },
+                    startIds: { model.begin(ids: $0) },
                     resume: { model.resume() }
                 )
             }
@@ -49,10 +49,25 @@ struct DiagView: View {
 private struct IntroScreen: View {
     let canResume: Bool
     let startAll: () -> Void
-    let startGroup: (String) -> Void
+    let startIds: ([String]) -> Void
     let resume: () -> Void
+    @State private var opened: String?
 
     var body: some View {
+        if let group = opened {
+            SectionScreen(
+                group: group,
+                back: { opened = nil },
+                startAll: { startIds(HardwareFit.rows(in: group).map(\.id)) },
+                startOne: { startIds([$0]) }
+            )
+            .id(group)
+        } else {
+            home
+        }
+    }
+
+    private var home: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 14) {
                 ZStack {
@@ -76,7 +91,7 @@ private struct IntroScreen: View {
                         .foregroundStyle(.white)
                 }
             }
-            Text("Scegli tutte le prove, oppure un solo banco: audio, fotocamere, sensori.")
+            Text("Tocca un quadrato per aprire la sezione. Dentro, tocca una prova e parte subito.")
                 .font(.system(size: 17))
                 .foregroundStyle(Look.ink)
             if canResume {
@@ -84,66 +99,34 @@ private struct IntroScreen: View {
             }
             BenchButton(title: "Tutti i test · \(HardwareFit.rows(in: nil).count)", action: startAll)
             ScrollView {
-                VStack(spacing: 8) {
-                    ForEach(Catalog.groups.filter { !HardwareFit.rows(in: $0).isEmpty }, id: \.self) { group in
-                        Button(action: { startGroup(group) }) {
-                            HStack(spacing: 14) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(cyan.opacity(0.14))
-                                        .frame(width: 40, height: 40)
-                                    Image(systemName: Catalog.symbol(group))
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundStyle(cyan)
-                                }
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(Catalog.homeTitle(group))
-                                        .font(.system(size: 17, weight: .semibold))
-                                    Text(Catalog.homeLine(group))
-                                        .font(.system(size: 13))
-                                        .foregroundStyle(Look.mute)
-                                }
-                                Spacer()
-                                Text("\(HardwareFit.rows(in: group).count)")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(Look.mute)
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(Look.mute)
+                VStack(alignment: .leading, spacing: 14) {
+                    LazyVGrid(columns: benchColumns, spacing: 12) {
+                        ForEach(Catalog.groups.filter { !HardwareFit.rows(in: $0).isEmpty }, id: \.self) { group in
+                            let count = HardwareFit.rows(in: group).count
+                            BenchSquare(
+                                title: Catalog.homeTitle(group),
+                                symbol: Catalog.symbol(group),
+                                subtitle: count == 1 ? "1 prova" : "\(count) prove"
+                            ) {
+                                opened = group
                             }
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(Look.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                            .overlay(alignment: .leading) {
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(cyan)
-                                    .frame(width: 3)
-                                    .padding(.vertical, 14)
-                                    .padding(.leading, 0)
-                            }
-                            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Look.line, lineWidth: 1))
                         }
-                        .buttonStyle(.plain)
                     }
                     if !HardwareFit.lockedRows.isEmpty {
                         Text("Non su questo modello")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(Color.white.opacity(0.38))
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.top, 10)
-                        ForEach(HardwareFit.lockedRows, id: \.id) { row in
-                            HStack {
-                                Text(row.title)
-                                    .font(.system(size: 15, weight: .semibold))
-                                Spacer()
-                                Text("Non disponibile")
-                                    .font(.system(size: 12, weight: .semibold))
+                            .padding(.top, 4)
+                        LazyVGrid(columns: benchColumns, spacing: 12) {
+                            ForEach(HardwareFit.lockedRows, id: \.id) { row in
+                                BenchSquare(
+                                    title: row.title,
+                                    symbol: Catalog.testSymbol(row.id),
+                                    subtitle: "Non disponibile",
+                                    locked: true
+                                )
                             }
-                            .foregroundStyle(Color.white.opacity(0.32))
-                            .padding(.horizontal, 14)
-                            .frame(minHeight: 44)
-                            .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
                     }
                 }
@@ -154,6 +137,138 @@ private struct IntroScreen: View {
         .padding(.top, 28)
         .frame(maxWidth: 720)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+private struct SectionScreen: View {
+    let group: String
+    let back: () -> Void
+    let startAll: () -> Void
+    let startOne: (String) -> Void
+
+    private var supported: [Catalog.Row] { HardwareFit.rows(in: group) }
+    private var locked: [Catalog.Row] { HardwareFit.lockedRows.filter { $0.group == group } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Button(action: back) {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("Indietro")
+                        .font(.system(size: 17, weight: .semibold))
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(cyan)
+                .frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(Catalog.homeTitle(group))
+                    .font(.system(size: 32, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text("Tocca un quadrato: parte solo quel test.")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Look.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    LazyVGrid(columns: benchColumns, spacing: 12) {
+                        ForEach(supported, id: \.id) { row in
+                            BenchSquare(title: row.title, symbol: Catalog.testSymbol(row.id)) {
+                                startOne(row.id)
+                            }
+                        }
+                    }
+                    if !locked.isEmpty {
+                        Text("Non su questo modello")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color.white.opacity(0.38))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        LazyVGrid(columns: benchColumns, spacing: 12) {
+                            ForEach(locked, id: \.id) { row in
+                                BenchSquare(
+                                    title: row.title,
+                                    symbol: Catalog.testSymbol(row.id),
+                                    subtitle: "Non disponibile",
+                                    locked: true
+                                )
+                            }
+                        }
+                    }
+                }
+                .padding(.bottom, 8)
+            }
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 12)
+        .frame(maxWidth: 720)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            BenchButton(
+                title: "Avvia tutti · \(supported.count)",
+                enabled: !supported.isEmpty,
+                action: startAll
+            )
+            .padding(.horizontal, 22)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+            .background(navy.opacity(0.96))
+        }
+    }
+}
+
+private let benchColumns = [GridItem(.adaptive(minimum: 148), spacing: 12)]
+
+private struct BenchSquare: View {
+    let title: String
+    let symbol: String
+    var subtitle: String = ""
+    var locked: Bool = false
+    var action: (() -> Void)? = nil
+
+    var body: some View {
+        if let action, !locked {
+            Button(action: action) { face }
+                .buttonStyle(.plain)
+                .accessibilityLabel(title)
+        } else {
+            face
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(title), non disponibile")
+        }
+    }
+
+    private var face: some View {
+        VStack(spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 32, weight: .semibold))
+                .foregroundStyle(locked ? Color.white.opacity(0.28) : cyan)
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.75)
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(locked ? Color.white.opacity(0.4) : Look.mute)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+        }
+        .foregroundStyle(locked ? Color.white.opacity(0.32) : .white)
+        .padding(10)
+        .frame(maxWidth: .infinity)
+        .aspectRatio(1, contentMode: .fit)
+        .background(locked ? Color.white.opacity(0.03) : Look.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(locked ? Color.white.opacity(0.06) : cyan.opacity(0.4), lineWidth: 1)
+        )
     }
 }
 
@@ -209,17 +324,15 @@ private struct RunScreen: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else if model.currentId == "network" || model.currentId == "bluetooth" {
             KeyMark(on: model.keyOk, waiting: model.detail.isEmpty ? "Controllo" : model.detail)
-        } else if model.currentId == "volume_up" || model.currentId == "volume_down" || model.currentId == "power_button" {
+        } else if model.currentId == "volume_up" || model.currentId == "volume_down" || model.currentId == "power_button" || model.currentId == "mute_switch" {
             ZStack {
-                if model.currentId != "power_button" {
+                if model.currentId == "volume_up" || model.currentId == "volume_down" {
                     VolumeCatcher()
                         .frame(width: 200, height: 36)
                 }
                 KeyMark(
                     on: model.keyOk,
-                    waiting: model.keyOk
-                        ? "Tasto ok"
-                        : (model.currentId == "volume_down" ? "Premi volume −" : model.currentId == "volume_up" ? "Premi volume +" : "Premi accensione")
+                    waiting: model.keyOk ? "Tasto ok" : keyWaiting(model.currentId)
                 )
             }
         } else if model.currentId == "light" {
@@ -302,6 +415,18 @@ private struct RunScreen: View {
         }
     }
 
+    private func keyWaiting(_ id: String) -> String {
+        switch id {
+        case "volume_down": return "Premi volume −"
+        case "volume_up": return "Premi volume +"
+        case "power_button": return "Premi accensione"
+        case "mute_switch":
+            if model.detail == "Suono" || model.detail == "Silenzioso" { return model.detail }
+            return HardwareFit.usesActionButton ? "Premi il tasto Azione" : "Sposta il silenzioso"
+        default: return "In attesa"
+        }
+    }
+
     private func buttonKind(_ act: Act) -> BenchButton.Kind {
         switch act.status {
         case "pass", "mic-ok", "camera-pass", "truedepth-retry": return .primary
@@ -313,66 +438,25 @@ private struct RunScreen: View {
 
 private struct GradeFilm: View {
     let name: String
+    @State private var drift = false
 
     var body: some View {
         HStack {
             Spacer(minLength: 0)
-            FilmLoop(name: name)
-                .frame(width: 180, height: 320)
+            Image(name)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 280, height: 380)
+                .scaleEffect(drift ? 1.08 : 1.0)
+                .offset(x: drift ? 12 : -10, y: drift ? -10 : 8)
+                .frame(width: 220, height: 320)
+                .clipped()
                 .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(Look.line, lineWidth: 1))
+                .onAppear { drift = true }
+                .animation(.easeInOut(duration: 3.6).repeatForever(autoreverses: true), value: drift)
             Spacer(minLength: 0)
         }
-    }
-}
-
-private struct FilmLoop: UIViewRepresentable {
-    let name: String
-
-    func makeUIView(context: Context) -> FilmView {
-        let view = FilmView()
-        view.play(name: name)
-        return view
-    }
-
-    func updateUIView(_ uiView: FilmView, context: Context) {
-        uiView.play(name: name)
-    }
-
-    static func dismantleUIView(_ uiView: FilmView, coordinator: ()) {
-        uiView.stop()
-    }
-}
-
-final class FilmView: UIView {
-    override class var layerClass: AnyClass { AVPlayerLayer.self }
-    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
-    private var queue: AVQueuePlayer?
-    private var looper: AVPlayerLooper?
-    private var current = ""
-
-    func play(name: String) {
-        if current == name {
-            queue?.play()
-            return
-        }
-        current = name
-        guard let url = GradeClips.url(name) ?? Bundle.main.url(forResource: name, withExtension: "mp4") else { return }
-        let player = AVQueuePlayer()
-        player.isMuted = true
-        looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
-        queue = player
-        playerLayer.videoGravity = .resizeAspectFill
-        playerLayer.player = player
-        player.play()
-    }
-
-    func stop() {
-        queue?.pause()
-        looper = nil
-        queue = nil
-        playerLayer.player = nil
-        current = ""
     }
 }
 
@@ -831,7 +915,7 @@ private struct TouchGrid: UIViewRepresentable {
 final class TouchGridView: UIView {
     var onProgress: ((Int, Int) -> Void)?
     var onPass: (() -> Void)?
-    private let cell: CGFloat = 28
+    private let cell: CGFloat = 44
     private var columns = 8
     private var rows = 12
     private var hit: [Bool] = []
@@ -848,8 +932,8 @@ final class TouchGridView: UIView {
 
     private func rebuildIfNeeded() {
         guard bounds.width > 1, bounds.height > 1 else { return }
-        let nextColumns = max(8, Int(bounds.width / cell))
-        let nextRows = max(12, Int(bounds.height / cell))
+        let nextColumns = max(1, Int(bounds.width / cell))
+        let nextRows = max(1, Int(bounds.height / cell))
         if nextColumns == columns, nextRows == rows, hit.count == nextColumns * nextRows { return }
         columns = nextColumns
         rows = nextRows
@@ -969,23 +1053,28 @@ private struct PhoneMap: View {
                     .fill(Color.black.opacity(0.85))
                     .frame(width: 62, height: 18)
                     .offset(y: -118)
-                Capsule()
-                    .fill(spot == "ear" || spot == "front" ? cyan : Color.white.opacity(0.28))
-                    .frame(width: 48, height: 8)
-                    .offset(y: -92)
-                Circle()
-                    .fill(spot == "back" ? cyan : Color.white.opacity(0.28))
-                    .frame(width: 16, height: 16)
-                    .offset(x: 46, y: -86)
-                Capsule()
-                    .fill(spot == "speaker" || spot == "bottom" ? cyan : Color.white.opacity(0.28))
-                    .frame(width: 56, height: 8)
-                    .offset(y: 128)
-                Text(caption)
-                    .font(.footnote.weight(.semibold))
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.white)
-                    .frame(width: 110)
+                if spot == "bottom" || spot == "front" || spot == "back" {
+                    micMark("Fronte", on: spot == "front", kind: .front)
+                        .offset(y: -88)
+                    micMark("Retro", on: spot == "back", kind: .rear)
+                        .offset(x: 38, y: -28)
+                    micMark("Basso", on: spot == "bottom", kind: .bottom)
+                        .offset(y: 116)
+                } else {
+                    Capsule()
+                        .fill(spot == "ear" ? cyan : Color.white.opacity(0.28))
+                        .frame(width: 48, height: 8)
+                        .offset(y: -92)
+                    Capsule()
+                        .fill(spot == "speaker" ? cyan : Color.white.opacity(0.28))
+                        .frame(width: 56, height: 8)
+                        .offset(y: 128)
+                    Text(caption)
+                        .font(.footnote.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white)
+                        .frame(width: 110)
+                }
             }
             .frame(width: 168, height: 300)
             if spot == "bottom" || spot == "front" || spot == "back" {
@@ -1007,13 +1096,36 @@ private struct PhoneMap: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private enum MicKind { case front, rear, bottom }
+
+    private func micMark(_ title: String, on: Bool, kind: MicKind) -> some View {
+        VStack(spacing: 4) {
+            switch kind {
+            case .front:
+                Capsule()
+                    .fill(on ? cyan : Color.white.opacity(0.28))
+                    .frame(width: 44, height: 8)
+            case .rear:
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(on ? cyan : Color.white.opacity(0.28), lineWidth: 2)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(on ? cyan.opacity(0.22) : Color.white.opacity(0.04)))
+                    .frame(width: 36, height: 36)
+                    .overlay(Circle().fill(on ? cyan : Color.white.opacity(0.45)).frame(width: 10, height: 10))
+            case .bottom:
+                Capsule()
+                    .fill(on ? cyan : Color.white.opacity(0.28))
+                    .frame(width: 48, height: 8)
+            }
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(on ? cyan : Color.white.opacity(0.55))
+        }
+    }
+
     private var caption: String {
         switch spot {
         case "speaker": return "Altoparlante in basso"
         case "ear": return "Capsula in alto"
-        case "bottom": return "Microfono in basso"
-        case "front": return "Microfono in alto"
-        case "back": return "Microfono dietro"
         default: return "Microfono"
         }
     }

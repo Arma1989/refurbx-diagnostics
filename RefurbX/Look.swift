@@ -77,6 +77,7 @@ struct BenchButton: View {
 
     let title: String
     var kind: Kind = .primary
+    var enabled: Bool = true
     let action: () -> Void
 
     var body: some View {
@@ -92,6 +93,8 @@ struct BenchButton: View {
                 )
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.38)
     }
 
     private var fill: Color {
