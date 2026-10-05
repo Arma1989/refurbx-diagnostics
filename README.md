@@ -1,6 +1,6 @@
 # RefurbX Diagnostica per iPhone
 
-App nativa dei test, versione 1.0.19 (build 20). Sull'iPhone il nome è **RefurbX Diagnostica**. Team ID `L9F47LJC86`, bundle `eu.refurbx.diagnostics`.
+App nativa dei test, versione 1.0.20 (build 21). Sull'iPhone il nome è **RefurbX Diagnostica**. Team ID `L9F47LJC86`, bundle `eu.refurbx.diagnostics`.
 
 A fine diagnosi, nella scheda, incolla il link del banco e premi **Invia al banco**. Codemagic carica l'app su TestFlight senza inviarla ogni volta alla revisione beta: quel limite di Apple si era già esaurito. I tester interni la installano subito. La revisione per i tester esterni si fa a mano, una volta, da App Store Connect.
 
