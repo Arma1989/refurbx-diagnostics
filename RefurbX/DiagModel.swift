@@ -55,6 +55,13 @@ final class DiagModel: ObservableObject {
     @Published var memoryFree = ""
     @Published var memoryUsed = ""
     @Published var gpsAccuracy = ""
+    @Published var plan: [String] = []
+
+    var planCount: Int { max(plan.count, 1) }
+    var activeRows: [Catalog.Row] {
+        let ids = plan.isEmpty ? Catalog.rows.map(\.id) : plan
+        return ids.compactMap { id in Catalog.rows.first { $0.id == id } }
+    }
 
     let camera = CameraSession()
 
@@ -95,8 +102,11 @@ final class DiagModel: ObservableObject {
     private var forceHard = false
     private var openedLenses: [String] = []
 
-    func begin() {
+    func begin(group: String?) {
+        let chosen = Catalog.rows.filter { group == nil || $0.group == group }
+        guard !chosen.isEmpty else { return }
         UIDevice.current.isBatteryMonitoringEnabled = true
+        plan = chosen.map(\.id)
         outcomes = []
         lookGlass = 0
         lookBack = 0
@@ -111,16 +121,17 @@ final class DiagModel: ObservableObject {
 
     func resume() {
         guard let saved = Self.loadRun() else {
-            begin()
+            begin(group: nil)
             return
         }
+        plan = saved.plan.isEmpty ? Catalog.rows.map(\.id) : saved.plan
         outcomes = saved.items.map { Outcome(id: $0.id, status: $0.status, note: $0.note) }
         lookGlass = saved.glass
         lookBack = saved.back
         lookBody = saved.body
         withCable = saved.cable
         withBox = saved.box
-        index = min(max(0, saved.index), Catalog.rows.count - 1)
+        index = min(max(0, saved.index), max(0, plan.count - 1))
         if saved.phase == "report" {
             cleanup()
             phase = "report"
@@ -137,6 +148,7 @@ final class DiagModel: ObservableObject {
         phase = "intro"
         currentId = ""
         index = -1
+        plan = []
         outcomes = []
         actions = []
         hint = ""
@@ -180,6 +192,10 @@ final class DiagModel: ObservableObject {
             armFace()
         case "wifi-retry":
             readNetwork()
+        case "open-settings":
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
         case "nfc-retry":
             startNfc()
         case "lidar-ok":
@@ -198,6 +214,9 @@ final class DiagModel: ObservableObject {
     }
 
     func onScenePhase(_ phase: ScenePhase) {
+        if phase == .active, currentId == "gps", !settled {
+            place.requestFix()
+        }
         guard armPower, currentId == "power_button", !settled else { return }
         if phase == .background { sawBackground = true }
         if phase == .active && (sawLock || sawBackground) {
@@ -248,7 +267,7 @@ final class DiagModel: ObservableObject {
         cleanup(releaseCamera: !cameraWasOpen)
         let proceed = { [weak self] in
             guard let self else { return }
-            guard self.index + 1 < Catalog.rows.count else {
+            guard self.index + 1 < self.plan.count else {
                 self.phase = "report"
                 self.currentId = "report"
                 self.remember()
@@ -282,7 +301,7 @@ final class DiagModel: ObservableObject {
             "Cavo \(withCable ? "sì" : "no") · Scatola \(withBox ? "sì" : "no")",
             "",
         ]
-        for row in Catalog.rows {
+        for row in activeRows {
             let item = outcomes.first { $0.id == row.id }
             let status = item?.status ?? "skip"
             lines.append("\(row.title): \(statusIt(status))")
@@ -294,7 +313,7 @@ final class DiagModel: ObservableObject {
 
     private func enter() {
         cleanup()
-        let row = Catalog.rows[index]
+        let row = current
         currentId = row.id
         settled = false
         phase = "guide"
@@ -343,8 +362,13 @@ final class DiagModel: ObservableObject {
         launch()
     }
 
+    private var current: Catalog.Row {
+        let id = plan.indices.contains(index) ? plan[index] : ""
+        return Catalog.rows.first { $0.id == id } ?? Catalog.rows[0]
+    }
+
     private func launch() {
-        let row = Catalog.rows[index]
+        let row = current
         switch row.id {
         case "identity": readIdentity()
         case "battery": readBattery()
@@ -548,7 +572,22 @@ final class DiagModel: ObservableObject {
     }
 
     private func startNfc() {
-        settle("nfc", "skip", "NFC Tag Reading non è nel profilo di firma. Il test non abbassa il grado.")
+        hint = "Si apre la finestra di sistema. Avvicina un tag NFC al retro, in alto."
+        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        tags.onResult = { [weak self] status, note in
+            guard let self, self.still("nfc") else { return }
+            if status == "cancel" {
+                self.hint = "Lettura annullata. Riprova con un tag, oppure segna l'esito."
+                self.actions = [
+                    Act(label: "Riprova", status: "nfc-retry", note: ""),
+                    Act(label: "Non legge", status: "fail", note: "NFC non ha letto un tag"),
+                    Act(label: "Salta", status: "skip", note: "Non eseguito"),
+                ]
+                return
+            }
+            self.settle("nfc", status, note)
+        }
+        tags.start()
     }
 
     private func startSpeaker() {
@@ -622,36 +661,48 @@ final class DiagModel: ObservableObject {
     }
 
     private func startGps() {
-        hint = "Cerco il fix. In negozio può non arrivare: in quel caso salta."
-        actions = [
-            Act(label: "Nessun fix", status: "skip", note: "Nessun fix in negozio"),
-            Act(label: "Salta", status: "skip", note: "Non eseguito"),
-        ]
+        hint = "Cerco il satellite. Se iOS chiede la posizione, consenti e scegli Precisa."
+        detail = "In cerca"
+        gpsAccuracy = "In cerca"
         bestGps = nil
-        gpsAccuracy = "In attesa"
+        actions = [
+            Act(label: "Apri Impostazioni", status: "open-settings", note: ""),
+            Act(label: "Nessun fix", status: "skip", note: "Nessun fix in negozio"),
+        ]
         place.onFix = { [weak self] location in
             guard let self, self.still("gps"), location.horizontalAccuracy >= 0 else { return }
             if let best = self.bestGps, location.horizontalAccuracy >= best.horizontalAccuracy { return }
             self.bestGps = location
             let meters = max(0, Int(location.horizontalAccuracy.rounded()))
+            let lat = String(format: "%.5f", location.coordinate.latitude)
+            let lon = String(format: "%.5f", location.coordinate.longitude)
             self.gpsAccuracy = "±\(meters) m"
-            self.detail = "Precisione ±\(meters) m"
-            if location.horizontalAccuracy <= 80 {
+            self.detail = "±\(meters) m · \(lat), \(lon)"
+            if location.horizontalAccuracy <= 100 {
                 self.settle("gps", "pass", "Fix ±\(meters) m")
+                return
             }
+            self.hint = "Fix largo. Avvicinati a una finestra, oppure consenti la posizione precisa."
+            self.actions = [
+                Act(label: "Accetta ±\(meters) m", status: "pass", note: "Fix ±\(meters) m"),
+                Act(label: "Apri Impostazioni", status: "open-settings", note: ""),
+                Act(label: "Nessun fix", status: "skip", note: "Nessun fix utile"),
+            ]
         }
         place.onDenied = { [weak self] in
-            self?.settle("gps", "skip", "Permesso posizione negato")
+            guard let self, self.still("gps") else { return }
+            self.hint = "Posizione negata. In Impostazioni consenti Posizione e Precisa, poi torna nell'app."
+            self.detail = "Permesso assente"
+            self.gpsAccuracy = "Negato"
+            self.actions = [
+                Act(label: "Apri Impostazioni", status: "open-settings", note: ""),
+                Act(label: "Salta", status: "skip", note: "Permesso posizione negato"),
+            ]
         }
         place.requestFix()
-        later(30) {
-            guard self.still("gps") else { return }
-            if let best = self.bestGps, best.horizontalAccuracy >= 0, best.horizontalAccuracy < 1000 {
-                let meters = max(0, Int(best.horizontalAccuracy.rounded()))
-                self.settle("gps", "pass", "Fix ±\(meters) m")
-            } else {
-                self.settle("gps", "skip", "Nessun fix in tempo")
-            }
+        later(20) {
+            guard self.still("gps"), self.bestGps == nil else { return }
+            self.hint = "Ancora nessun satellite. Una finestra aiuta. Il test resta qui finché non arriva un fix o salti."
         }
     }
 
@@ -810,12 +861,15 @@ final class DiagModel: ObservableObject {
             Act(label: "Salta", status: "skip", note: "Bluetooth non verificato"),
         ]
         radio.onResult = { [weak self] status, note in
-            self?.settle("bluetooth", status, note)
+            guard let self, self.still("bluetooth") else { return }
+            if status == "skip", note == "Bluetooth spento" {
+                self.hint = "Bluetooth spento. Accendilo dal Centro di Controllo: il test prosegue da solo."
+                self.detail = "Spento"
+                return
+            }
+            self.settle("bluetooth", status, note)
         }
         radio.start()
-        later(20) {
-            if self.still("bluetooth") { self.settle("bluetooth", "skip", "Bluetooth non ha risposto") }
-        }
     }
 
     private func openCamera(front: Bool) {
@@ -922,23 +976,25 @@ final class DiagModel: ObservableObject {
                 self.showCamera = true
                 self.camera.start(front: false, onFocus: {
                     guard self.still("autofocus") else { return }
-                    self.settle("autofocus", "pass", "Messa a fuoco rilevata")
+                    self.detail = "Il fuoco si è mosso"
+                    self.hint = "Il fuoco si è mosso. Guarda l'immagine e conferma quando hai finito."
+                    self.actions = [
+                        Act(label: "Fuoco ok", status: "pass", note: "Messa a fuoco rilevata"),
+                        Act(label: "Non mette a fuoco", status: "fail", note: "Il fuoco non cambia"),
+                        Act(label: "Salta", status: "skip", note: "Non eseguito"),
+                    ]
                 }, onRunning: {
                     guard self.still("autofocus") else { return }
-                    self.hint = "Inquadra un oggetto vicino e poi uno lontano."
+                    self.hint = "Inquadra un oggetto vicino e poi uno lontano. L'immagine resta finché non confermi."
+                    self.actions = [
+                        Act(label: "Fuoco ok", status: "pass", note: "Messa a fuoco confermata a vista"),
+                        Act(label: "Non mette a fuoco", status: "fail", note: "Il fuoco non cambia"),
+                        Act(label: "Salta", status: "skip", note: "Non eseguito"),
+                    ]
                 }, onError: { message in
                     self.settle("autofocus", "fail", message)
                 })
             }
-        }
-        later(12) {
-            guard self.still("autofocus") else { return }
-            self.hint = "Non ho visto il fuoco muoversi. Se l'immagine cambia davvero, confermalo."
-            self.actions = [
-                Act(label: "Il fuoco cambia", status: "pass", note: "Messa a fuoco confermata a vista"),
-                Act(label: "Non mette a fuoco", status: "fail", note: "Il fuoco non cambia"),
-                Act(label: "Salta", status: "skip", note: "Non eseguito"),
-            ]
         }
     }
 
@@ -947,30 +1003,21 @@ final class DiagModel: ObservableObject {
             settle("truedepth", "absent", "Niente fotocamera TrueDepth")
             return
         }
-        hint = "Guarda lo schermo. Il volto compare in bianco su nero solo se viene seguito. L'immagine a infrarossi resta nel sistema."
-        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        hint = "Guarda lo schermo. Il volto resta in punti bianchi su nero finché non confermi. L'immagine a infrarossi resta nel sistema."
+        actions = [
+            Act(label: "Volto seguito", status: "pass", note: "TrueDepth ha seguito il volto. L'immagine a infrarossi resta nel sistema."),
+            Act(label: "Non segue il volto", status: "fail", note: "TrueDepth presente, volto non seguito"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
         armFace()
-        later(12) {
-            guard self.still("truedepth") else { return }
-            self.hint = "Il volto non è stato seguito. Avvicinati e guarda lo schermo, oppure segna l'esito."
-            self.actions = [
-                Act(label: "Riprova", status: "truedepth-retry", note: ""),
-                Act(label: "Non segue il volto", status: "fail", note: "TrueDepth presente, volto non seguito"),
-                Act(label: "Salta", status: "skip", note: "Non eseguito"),
-            ]
-        }
     }
 
     private func armFace() {
         faceTrack.onPicture = { [weak self] points in
             guard let self, self.still("truedepth"), points.count > 100 else { return }
             self.facePoints = points
-            guard !self.faceArmed else { return }
             self.faceArmed = true
-            self.later(1.4) {
-                guard self.still("truedepth"), self.facePoints.count > 100 else { return }
-                self.settle("truedepth", "pass", "TrueDepth ha seguito il volto. L'immagine a infrarossi resta nel sistema.")
-            }
+            self.detail = "Volto seguito"
         }
         faceTrack.start { _ in }
     }
@@ -981,7 +1028,7 @@ final class DiagModel: ObservableObject {
             settle("lidar", "absent", "Questo iPhone non consegna la profondità LiDAR")
             return
         }
-        hint = "Parte grigia. Avvicina la mano o un oggetto: solo le zone vicine diventano più scure. Il passaggio è automatico se succede, oppure lo segni a mano."
+        hint = "Parte grigia e resta aperta. Avvicina la mano: solo le zone vicine diventano più scure. Conferma quando hai visto abbastanza."
         actions = [
             Act(label: "Si scurisce", status: "lidar-ok", note: ""),
             Act(label: "Resta chiara", status: "fail", note: "La profondità non si scurisce"),
@@ -992,14 +1039,7 @@ final class DiagModel: ObservableObject {
             self.depthShot = image
             guard live else { return }
             self.depthLive = true
-            guard near else { return }
-            self.depthFrames += 1
-            guard self.depthFrames >= 4, !self.depthArmed else { return }
-            self.depthArmed = true
-            self.later(1.2) {
-                guard self.still("lidar"), self.depthFrames >= 4 else { return }
-                self.settle("lidar", "pass", "LiDAR: il vicino è più scuro del fondo")
-            }
+            self.detail = near ? "Vicino più scuro" : "Inquadra qualcosa di vicino"
         }
         AVCaptureDevice.requestAccess(for: .video) { granted in
             DispatchQueue.main.async {
@@ -1015,10 +1055,6 @@ final class DiagModel: ObservableObject {
                         if !ok {
                             self.settle("lidar", "skip", "Nessuna mappa di profondità")
                         }
-                    }
-                    self.later(18) {
-                        guard self.still("lidar") else { return }
-                        self.settle("lidar", "skip", "Nessun oggetto vicino nella mappa")
                     }
                 }
             }
@@ -1072,11 +1108,15 @@ final class DiagModel: ObservableObject {
                 self.settle("compass", "pass", "Anello seguito per \(self.compassMarks.count) direzioni")
             }
         }
-        place.onDenied = { [weak self] in self?.settle("compass", "skip", "Permesso posizione negato") }
-        place.startHeading()
-        later(25) {
-            if self.still("compass") { self.settle("compass", "skip", "La bussola non ha girato") }
+        place.onDenied = { [weak self] in
+            guard let self, self.still("compass") else { return }
+            self.hint = "La bussola chiede la posizione. Consenti Posizione, poi torna nell'app e ruota il telefono."
+            self.actions = [
+                Act(label: "Apri Impostazioni", status: "open-settings", note: ""),
+                Act(label: "Salta", status: "skip", note: "Permesso posizione negato"),
+            ]
         }
+        place.startHeading()
     }
 
     private func watchHeadphones() {
@@ -1114,7 +1154,7 @@ final class DiagModel: ObservableObject {
 
     private func recordMic() {
         guard still("microphone") else { return }
-        hint = "Parla per tre secondi. Poi riascolti la voce."
+        hint = "Parla per otto secondi. Poi riascolti la voce."
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         AVAudioApplication.requestRecordPermission { granted in
             DispatchQueue.main.async {
@@ -1141,10 +1181,10 @@ final class DiagModel: ObservableObject {
         micLevel = 0
         micToken += 1
         let token = micToken
-        hint = "Parla verso \(micLabel.lowercased()), segnato sul disegno, per tre secondi. Poi confermi a mano: il livello da solo non basta."
+        hint = "Parla verso \(micLabel.lowercased()), segnato sul disegno, per otto secondi. Poi confermi a mano: il livello da solo non basta."
         detail = micQueue.count > 1 ? "\(micCursor + 1) di \(micQueue.count)" : micLabel
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
-        mic.record(seconds: 3, source: source, onLevel: { level in
+        mic.record(seconds: 8, source: source, onLevel: { level in
             Task { @MainActor in
                 guard self.micToken == token, self.still("microphone") else { return }
                 self.micLevel = min(100, level / 4)
@@ -1174,7 +1214,7 @@ final class DiagModel: ObservableObject {
                 self.actions = items
             }
         })
-        later(8) {
+        later(14) {
             guard self.micToken == token, self.still("microphone"), self.actions.count < 2 else { return }
             self.hint = "La registrazione non è arrivata."
             self.actions = [
@@ -1291,6 +1331,7 @@ final class DiagModel: ObservableObject {
         let saved = SavedRun(
             phase: phase,
             index: index,
+            plan: plan,
             items: outcomes.map { SavedItem(id: $0.id, status: $0.status, note: $0.note) },
             glass: lookGlass,
             back: lookBack,
@@ -1338,12 +1379,55 @@ private struct SavedItem: Codable {
 private struct SavedRun: Codable {
     var phase: String
     var index: Int
+    var plan: [String]
     var items: [SavedItem]
     var glass: Int
     var back: Int
     var body: Int
     var cable: Bool
     var box: Bool
+
+    init(phase: String, index: Int, plan: [String], items: [SavedItem], glass: Int, back: Int, body: Int, cable: Bool, box: Bool) {
+        self.phase = phase
+        self.index = index
+        self.plan = plan
+        self.items = items
+        self.glass = glass
+        self.back = back
+        self.body = body
+        self.cable = cable
+        self.box = box
+    }
+
+    init(from decoder: Decoder) throws {
+        let keys = try decoder.container(keyedBy: CodingKeys.self)
+        phase = try keys.decode(String.self, forKey: .phase)
+        index = try keys.decode(Int.self, forKey: .index)
+        plan = try keys.decodeIfPresent([String].self, forKey: .plan) ?? []
+        items = try keys.decode([SavedItem].self, forKey: .items)
+        glass = try keys.decode(Int.self, forKey: .glass)
+        back = try keys.decode(Int.self, forKey: .back)
+        body = try keys.decode(Int.self, forKey: .body)
+        cable = try keys.decode(Bool.self, forKey: .cable)
+        box = try keys.decode(Bool.self, forKey: .box)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var keys = encoder.container(keyedBy: CodingKeys.self)
+        try keys.encode(phase, forKey: .phase)
+        try keys.encode(index, forKey: .index)
+        try keys.encode(plan, forKey: .plan)
+        try keys.encode(items, forKey: .items)
+        try keys.encode(glass, forKey: .glass)
+        try keys.encode(back, forKey: .back)
+        try keys.encode(body, forKey: .body)
+        try keys.encode(cable, forKey: .cable)
+        try keys.encode(box, forKey: .box)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case phase, index, plan, items, glass, back, body, cable, box
+    }
 }
 
 private final class Once {

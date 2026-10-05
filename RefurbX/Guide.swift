@@ -10,7 +10,7 @@ struct GuideScreen: View {
         VStack(alignment: .leading, spacing: 14) {
             StepHeader(
                 index: model.index,
-                total: Catalog.rows.count,
+                total: model.planCount,
                 group: Catalog.group(model.currentId),
                 title: Catalog.title(model.currentId),
                 message: GuideCopy.line(model.currentId)
@@ -45,7 +45,7 @@ private enum GuideCopy {
         case "stylus": return "L'iPhone non riceve la Apple Pencil. Il test resta non disponibile."
         case "speaker": return "Una nota sale dall'altoparlante in basso. Poi confermi a mano se è chiara."
         case "earpiece": return "Avvicina l'orecchio alla capsula in alto, segnata nell'esempio."
-        case "microphone": return "Si provano i microfoni in basso, in alto e dietro. Poi confermi a mano."
+        case "microphone": return "Ogni microfono registra otto secondi. Poi riascolti e confermi a mano."
         case "vibration": return "Il telefono vibra tre volte. Confermi solo se lo senti in mano."
         case "call": return "Tienilo come in chiamata. Il suono deve uscire solo dalla capsula in alto."
         case "headphones": return "Collega le cuffie se le hai. Se non le hai, salta."
@@ -53,16 +53,16 @@ private enum GuideCopy {
         case "camera_front": return "Si apre la fotocamera davanti. Conferma solo se vedi il volto."
         case "autofocus": return "Avvicina un oggetto e poi allontanalo. Il fuoco deve muoversi."
         case "flash": return "Il flash si accende. Conferma solo se lo vedi acceso."
-        case "truedepth": return "Guarda lo schermo. Il volto compare in punti bianchi su nero solo se viene seguito."
-        case "lidar": return "La vista parte grigia. Avvicina la mano: solo il vicino diventa più scuro."
+        case "truedepth": return "Il volto resta in punti bianchi su nero. Confermi tu quando hai visto abbastanza."
+        case "lidar": return "La vista a infrarossi resta aperta. Avvicina la mano: solo il vicino diventa più scuro."
         case "proximity": return "Copri il sensore in alto, vicino alla capsula."
         case "light": return "iOS non consegna il sensore di luce. Il test resta non disponibile."
         case "accelerometer": return "Inclina il telefono verso i quattro bordi, come la pallina."
         case "gyroscope": return "Tienilo fermo, poi ruotalo di lato, avanti e intorno a te."
         case "compass": return "Tienilo in piano e giralo finché l'anello si riempie."
-        case "gps": return "Cerco il satellite e mostro la precisione in metri. In negozio può non arrivare: in quel caso salta."
+        case "gps": return "Consente la posizione precisa. Il numero in metri arriva da solo; vicino a una finestra è più rapido."
         case "bluetooth": return "Controllo che il Bluetooth si accenda. Se compare la richiesta, consenti."
-        case "nfc": return "Il profilo di firma non include ancora NFC. Il test si salta e non abbassa il grado."
+        case "nfc": return "Si apre la lettura NFC. Avvicina un tag vero al retro, in alto."
         case "volume_up": return "Premi il tasto volume più, sul fianco."
         case "volume_down": return "Premi il tasto volume meno, sul fianco."
         case "power_button": return "Premi il tasto di accensione, poi riapri lo schermo."

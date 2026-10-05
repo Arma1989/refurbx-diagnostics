@@ -30,7 +30,8 @@ struct DiagView: View {
             default:
                 IntroScreen(
                     canResume: model.canResume,
-                    start: { model.begin() },
+                    startAll: { model.begin(group: nil) },
+                    startGroup: { model.begin(group: $0) },
                     resume: { model.resume() }
                 )
             }
@@ -44,13 +45,12 @@ struct DiagView: View {
 
 private struct IntroScreen: View {
     let canResume: Bool
-    let start: () -> Void
+    let startAll: () -> Void
+    let startGroup: (String) -> Void
     let resume: () -> Void
 
-    private let groups = ["Sistema", "Schermo", "Audio", "Foto", "Sensori", "Tasti", "Energia"]
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
             Text("REFURBX")
                 .font(.system(size: 13, weight: .semibold))
                 .tracking(1.4)
@@ -58,30 +58,39 @@ private struct IntroScreen: View {
             Text("Diagnosi")
                 .font(.system(size: 40, weight: .semibold))
                 .foregroundStyle(.white)
-            Text("\(Catalog.rows.count) prove su questo iPhone, una dopo l'altra. Quello che il modello non ha non abbassa il grado.")
+            Text("Scegli tutte le prove, oppure solo il gruppo che ti serve.")
                 .font(.system(size: 17))
                 .foregroundStyle(Look.ink)
-                .fixedSize(horizontal: false, vertical: true)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], alignment: .leading, spacing: 8) {
-                ForEach(groups, id: \.self) { group in
-                    Text(group)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Look.card, in: Capsule())
-                        .overlay(Capsule().stroke(Look.line, lineWidth: 1))
-                }
-            }
-            Spacer()
             if canResume {
                 BenchButton(title: "Riprendi la scheda", kind: .secondary, action: resume)
             }
-            BenchButton(title: canResume ? "Nuova diagnosi" : "Inizia i test", action: start)
+            BenchButton(title: "Tutti i test · \(Catalog.rows.count)", action: startAll)
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(Catalog.groups, id: \.self) { group in
+                        Button(action: { startGroup(group) }) {
+                            HStack {
+                                Text(Catalog.homeTitle(group))
+                                    .font(.system(size: 17, weight: .semibold))
+                                Spacer()
+                                Text("\(Catalog.count(group))")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(Look.mute)
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: 54)
+                            .background(Look.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Look.line, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.bottom, 12)
+            }
         }
         .padding(.horizontal, 22)
         .padding(.top, 28)
-        .padding(.bottom, 12)
     }
 }
 
@@ -92,7 +101,7 @@ private struct RunScreen: View {
         VStack(alignment: .leading, spacing: 14) {
             StepHeader(
                 index: model.index,
-                total: Catalog.rows.count,
+                total: model.planCount,
                 group: Catalog.group(model.currentId),
                 title: Catalog.title(model.currentId),
                 message: model.hint
@@ -162,7 +171,7 @@ private struct RunScreen: View {
                 }
         } else if model.showCamera {
             VStack(spacing: 8) {
-                CameraPreview(session: model.camera.session)
+                CameraPreview(session: model.camera.session, front: model.currentId == "camera_front")
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 if model.currentId == "camera_back", model.lenses.count > 1 {
                     HStack(spacing: 8) {
@@ -279,7 +288,7 @@ private struct ReportScreen: View {
     private var grouped: [ReportSection] {
         var order: [String] = []
         var buckets: [String: [Catalog.Row]] = [:]
-        for row in Catalog.rows {
+        for row in model.activeRows {
             if buckets[row.group] == nil { order.append(row.group) }
             buckets[row.group, default: []].append(row)
         }

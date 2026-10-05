@@ -361,6 +361,25 @@ final class PreviewView: UIView {
     override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
     var previewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
 
+    var front = false
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        orient()
+    }
+
+    func orient() {
+        guard let connection = previewLayer.connection else { return }
+        let angle: CGFloat = 90
+        if connection.isVideoRotationAngleSupported(angle) {
+            connection.videoRotationAngle = angle
+        }
+        if front, connection.isVideoMirroringSupported {
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = true
+        }
+    }
+
     override func willMove(toWindow newWindow: UIWindow?) {
         super.willMove(toWindow: newWindow)
         if newWindow == nil {
@@ -371,18 +390,23 @@ final class PreviewView: UIView {
 
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
+    var front = false
 
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
+        view.front = front
         view.previewLayer.session = session
         view.previewLayer.videoGravity = .resizeAspectFill
+        view.orient()
         return view
     }
 
     func updateUIView(_ uiView: PreviewView, context: Context) {
+        uiView.front = front
         if uiView.previewLayer.session !== session {
             uiView.previewLayer.session = session
         }
+        uiView.orient()
     }
 
     static func dismantleUIView(_ uiView: PreviewView, coordinator: ()) {
@@ -562,7 +586,8 @@ enum DepthImage {
                 intent: .defaultIntent
               ) else { return nil }
         let live = valid > 20
-        return Frame(image: UIImage(cgImage: cg), live: live, near: live && close > 8)
+        let upright = UIImage(cgImage: cg, scale: 1, orientation: .right)
+        return Frame(image: upright, live: live, near: live && close > 8)
     }
 
     private static func shade(_ value: Float, disparity: Bool) -> UInt8 {
@@ -612,7 +637,6 @@ final class FaceTrackProbe: NSObject, ARSessionDelegate {
 
     func start(_ onResult: @escaping (Bool) -> Void) {
         token += 1
-        let current = token
         finished = false
         self.onResult = onResult
         guard ARFaceTrackingConfiguration.isSupported else {
@@ -621,10 +645,6 @@ final class FaceTrackProbe: NSObject, ARSessionDelegate {
         }
         session.delegate = self
         session.run(ARFaceTrackingConfiguration(), options: [.resetTracking, .removeExistingAnchors])
-        DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
-            guard let self, self.token == current else { return }
-            self.finish(false)
-        }
     }
 
     func stop() {
@@ -687,7 +707,10 @@ final class PlaceProbe: NSObject, CLLocationManagerDelegate {
     override init() {
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.distanceFilter = kCLDistanceFilterNone
+        manager.activityType = .other
+        manager.pausesLocationUpdatesAutomatically = false
         manager.headingFilter = 5
     }
 
@@ -722,13 +745,24 @@ final class PlaceProbe: NSObject, CLLocationManagerDelegate {
     }
 
     private func startAuthorized() {
+        if mode == .fix && manager.accuracyAuthorization == .reducedAccuracy {
+            manager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: "DiagFix") { [weak self] _ in
+                DispatchQueue.main.async { self?.beginUpdates() }
+            }
+            return
+        }
+        beginUpdates()
+    }
+
+    private func beginUpdates() {
         if mode == .fix { manager.startUpdatingLocation() }
         if mode == .heading { manager.startUpdatingHeading() }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard mode == .fix, let location = locations.last, location.horizontalAccuracy >= 0 else { return }
-        onFix?(location)
+        let fix = location
+        DispatchQueue.main.async { [weak self] in self?.onFix?(fix) }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
@@ -750,7 +784,8 @@ final class PlaceProbe: NSObject, CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
         guard mode == .heading, newHeading.headingAccuracy >= 0 else { return }
-        onHeading?(newHeading)
+        let heading = newHeading
+        DispatchQueue.main.async { [weak self] in self?.onHeading?(heading) }
     }
 }
 

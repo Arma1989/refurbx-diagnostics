@@ -60,6 +60,22 @@ enum Catalog {
         Row(id: "biometrics", group: "Sicurezza", title: "Biometria", weight: 1, critical: false),
     ]
 
+    static var groups: [String] {
+        var names: [String] = []
+        for row in rows where !names.contains(row.group) {
+            names.append(row.group)
+        }
+        return names
+    }
+
+    static func count(_ group: String) -> Int {
+        rows.filter { $0.group == group }.count
+    }
+
+    static func homeTitle(_ group: String) -> String {
+        group == "Foto" ? "Fotocamere" : group
+    }
+
     static func title(_ id: String) -> String {
         rows.first { $0.id == id }?.title ?? id
     }
