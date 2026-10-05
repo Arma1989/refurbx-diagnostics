@@ -137,7 +137,9 @@ final class DiagModel: ObservableObject {
             return
         }
         let raw = saved.plan.isEmpty ? Catalog.rows.map(\.id) : saved.plan
-        plan = raw.filter { HardwareFit.supports($0) && Catalog.rows.contains { row in row.id == $0 } }
+        plan = raw.filter { id in
+            HardwareFit.supports(id) && Catalog.rows.contains { row in row.id == id }
+        }
         guard !plan.isEmpty else {
             begin(group: nil)
             return
