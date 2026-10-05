@@ -835,11 +835,17 @@ enum DiskProbe {
         guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
         let total = bytes(values.volumeTotalCapacity)
         guard total >= 16_000_000_000 else { return nil }
-        let important = bytes(values.volumeAvailableCapacityForImportantUsage)
-        let plain = bytes(values.volumeAvailableCapacity)
-        let opportunistic = bytes(values.volumeAvailableCapacityForOpportunisticUsage)
-        let free = [important, plain, opportunistic].first { $0 > 0 && $0 < total } ?? 0
-        let used = max(Int64(0), total - free)
+        let candidates: [Int64] = [
+            bytes(values.volumeAvailableCapacityForImportantUsage),
+            bytes(values.volumeAvailableCapacity),
+            bytes(values.volumeAvailableCapacityForOpportunisticUsage),
+        ]
+        var free: Int64 = 0
+        for candidate in candidates where candidate > 0 && candidate < total {
+            free = candidate
+            break
+        }
+        let used: Int64 = total > free ? total - free : 0
         let note = "Totale \(gb(total)) · Libero \(gb(free)) · Usato \(gb(used))"
         return Report(total: total, free: free, used: used, note: note)
     }
