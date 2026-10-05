@@ -331,6 +331,38 @@ private struct ReportScreen: View {
                         }
                     }
                 }
+                BenchCard {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("BANCO")
+                            .font(.system(size: 13, weight: .semibold))
+                            .tracking(0.8)
+                            .foregroundStyle(cyan)
+                        Text("Incolla il link che vedi sul computer, sotto il codice.")
+                            .font(.system(size: 15))
+                            .foregroundStyle(Look.ink)
+                        TextField("https://…/t/CODICE", text: $model.benchLink)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+                            .padding(12)
+                            .foregroundStyle(.white)
+                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        Button(action: { model.sendToBench() }) {
+                            Text(model.benchSending ? "Invio…" : "Invia al banco")
+                                .font(.system(size: 17, weight: .semibold))
+                                .frame(maxWidth: .infinity, minHeight: 54)
+                                .foregroundStyle(navy)
+                                .background(cyan, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(model.benchSending || model.benchLink.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        if !model.benchState.isEmpty {
+                            Text(model.benchState)
+                                .font(.system(size: 15))
+                                .foregroundStyle(Look.ink)
+                        }
+                    }
+                }
                 ShareLink(item: model.shareText()) {
                     Text("Invia scheda")
                         .font(.system(size: 17, weight: .semibold))

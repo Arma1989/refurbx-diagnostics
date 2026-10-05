@@ -17,9 +17,9 @@
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0.17</string>
+  <string>1.0.18</string>
   <key>CFBundleVersion</key>
-  <string>18</string>
+  <string>19</string>
   <key>ITSAppUsesNonExemptEncryption</key>
   <false/>
   <key>LSRequiresIPhoneOS</key>
@@ -54,5 +54,12 @@
   <string>RefurbX avvia il riconoscimento del volto solo per il test biometrico. L'immagine a infrarossi resta nel sistema.</string>
   <key>NFCReaderUsageDescription</key>
   <string>RefurbX avvicina un tag NFC solo per verificare che la radio risponda. Il contenuto del tag non viene caricato.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>RefurbX invia la scheda al computer del banco sulla rete del negozio.</string>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
 </dict>
 </plist>

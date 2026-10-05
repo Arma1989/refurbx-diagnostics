@@ -58,6 +58,9 @@ final class DiagModel: ObservableObject {
     @Published var gpsLatitude: Double?
     @Published var gpsLongitude: Double?
     @Published var plan: [String] = []
+    @Published var benchLink = UserDefaults.standard.string(forKey: "refurbx.bench-link") ?? ""
+    @Published var benchState = ""
+    @Published var benchSending = false
 
     var planCount: Int { max(plan.count, 1) }
     var activeRows: [Catalog.Row] {
@@ -314,6 +317,45 @@ final class DiagModel: ObservableObject {
         }
         let text = lines.joined(separator: "\n")
         return text.count > 3500 ? String(text.prefix(3480)) + "…" : text
+    }
+
+    func sendToBench() {
+        let raw = benchLink.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let target = BenchLink.parse(raw) else {
+            benchState = "Incolla il link intero del banco, quello sotto il codice."
+            return
+        }
+        UserDefaults.standard.set(raw, forKey: "refurbx.bench-link")
+        benchSending = true
+        benchState = "Invio al banco…"
+        let payload = benchPayload()
+        Task {
+            let message = await BenchLink.deliver(target, payload: payload)
+            self.benchSending = false
+            self.benchState = message
+        }
+    }
+
+    private func benchPayload() -> [String: Any] {
+        let scale = UIScreen.main.scale
+        let screen = "\(Int(UIScreen.main.bounds.width * scale))×\(Int(UIScreen.main.bounds.height * scale))"
+        let appearance = "Vetro \(lookGlass)/5 · Retro \(lookBack)/5 · Scocca \(lookBody)/5 · Cavo \(withCable ? "sì" : "no") · Scatola \(withBox ? "sì" : "no")"
+        return [
+            "device": [
+                "userAgent": "RefurbX Diagnostica",
+                "platform": "ios",
+                "model": Machine.identifier,
+                "os": "iOS \(UIDevice.current.systemVersion)",
+                "screen": screen,
+                "dpr": scale,
+                "cores": ProcessInfo.processInfo.processorCount,
+                "touchPoints": 5,
+                "language": "it",
+                "secureContext": benchLink.lowercased().hasPrefix("https"),
+            ],
+            "tests": outcomes.map { ["id": $0.id, "status": $0.status, "note": $0.note] },
+            "note": appearance,
+        ]
     }
 
     private func enter() {
@@ -1463,6 +1505,43 @@ private struct SavedRun: Codable {
 
     private enum CodingKeys: String, CodingKey {
         case phase, index, plan, items, glass, back, body, cable, box
+    }
+}
+
+enum BenchLink {
+    static func parse(_ raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), let host = url.host, let scheme = url.scheme, scheme == "http" || scheme == "https" else { return nil }
+        let code = (url.path.split(separator: "/").last.map(String.init) ?? "").uppercased()
+        guard code.count == 6, code.allSatisfy({ "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".contains($0) }) else { return nil }
+        var parts = URLComponents()
+        parts.scheme = scheme
+        parts.host = host
+        parts.port = url.port
+        parts.path = "/api/intake/\(code)"
+        return parts.url
+    }
+
+    static func deliver(_ url: URL, payload: [String: Any]) async -> String {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 20
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else {
+            return "Non riesco a preparare la scheda."
+        }
+        request.httpBody = body
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            if let message = json?["message"] as? String, status < 400 { return message }
+            if let error = json?["error"] as? String, !error.isEmpty { return error }
+            if status == 0 { return "Il banco non ha risposto." }
+            return "Il banco ha risposto \(status)."
+        } catch {
+            return "Non raggiungo il banco. Controlla che il telefono e il computer siano raggiungibili."
+        }
     }
 }
 
