@@ -33,6 +33,9 @@ final class DiagModel: ObservableObject {
     @Published var gyroTilt = false
     @Published var gyroPitch = false
     @Published var gyroYaw = false
+    @Published var gyroRollDeg: Double = 0
+    @Published var gyroPitchDeg: Double = 0
+    @Published var gyroYawDeg: Double = 0
     @Published var compassMarks: Set<Int> = []
     @Published var heading: Double = 0
     @Published var proximityLit = false
@@ -48,6 +51,7 @@ final class DiagModel: ObservableObject {
     @Published var forceUnit: CGFloat = 0
     @Published var canResume = false
     @Published var facePoints: [CGPoint] = []
+    @Published var faceShot: UIImage?
     @Published var micSpot = ""
     @Published var micLevel = 0
     @Published var audioSpot = ""
@@ -69,6 +73,11 @@ final class DiagModel: ObservableObject {
         let ids = plan.isEmpty ? Catalog.rows.map(\.id) : plan
         return ids.compactMap { id in Catalog.rows.first { $0.id == id } }
     }
+    var showsLocked: Bool {
+        let supported = Set(HardwareFit.rows(in: nil).map(\.id))
+        return supported.isSubset(of: Set(plan))
+    }
+    var lockedRows: [Catalog.Row] { HardwareFit.lockedRows }
 
     let camera = CameraSession()
 
@@ -96,6 +105,9 @@ final class DiagModel: ObservableObject {
     private var lightWarm = 0
     private var lightFloor = 0.0
     private var lightCeil = 0.0
+    private var lightBase = 0.0
+    private var lightSawDark = false
+    private var lightSawBright = false
     private var playback: AVAudioPlayer?
     private var observers: [NSObjectProtocol] = []
     private var micQueue: [AVAudioSessionDataSourceDescription] = []
@@ -212,8 +224,9 @@ final class DiagModel: ObservableObject {
             settle(currentId, "pass", note)
         case "truedepth-retry":
             facePoints = []
+            faceShot = nil
             faceArmed = false
-            hint = "I puntini bianchi sono il volto visto dal sensore TrueDepth, non dalla fotocamera. Gira la testa: devono girare con te."
+            hint = "In alto a destra c'è la fotocamera a colori. Al centro i puntini TrueDepth. Gira la testa: devono girare con te."
             actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
             armFace()
         case "wifi-retry":
@@ -292,6 +305,18 @@ final class DiagModel: ObservableObject {
         }
     }
 
+    func notePencil() {
+        guard still("stylus") else { return }
+        settle("stylus", "pass", "Tratto della Apple Pencil ricevuto")
+    }
+
+    private func recordLocked() {
+        guard showsLocked else { return }
+        for row in lockedRows where !outcomes.contains(where: { $0.id == row.id }) {
+            outcomes.append(Outcome(id: row.id, status: "absent", note: "Non su questo modello"))
+        }
+    }
+
     func settle(_ id: String, _ status: String, _ note: String) {
         guard !settled, currentId == id else { return }
         settled = true
@@ -304,6 +329,7 @@ final class DiagModel: ObservableObject {
         let proceed = { [weak self] in
             guard let self else { return }
             guard self.index + 1 < self.plan.count else {
+                self.recordLocked()
                 if self.testedAt == nil { self.testedAt = Date() }
                 self.phase = "report"
                 self.currentId = "report"
@@ -333,7 +359,7 @@ final class DiagModel: ObservableObject {
         let model = Machine.described
         var lines = [
             "RefurbX Diagnostica",
-            "\(model) · iOS \(UIDevice.current.systemVersion)",
+            "\(model) · \(HardwareFit.systemName) \(UIDevice.current.systemVersion)",
             "Grado estetico \(choice?.id ?? "—") · \(choice?.title ?? "da scegliere")",
             "Cavo \(withCable ? "sì" : "no") · Scatola \(withBox ? "sì" : "no")",
             "",
@@ -344,6 +370,12 @@ final class DiagModel: ObservableObject {
             lines.append("\(row.title): \(statusIt(status))")
             if let note = item?.note, !note.isEmpty { lines.append(note) }
         }
+        if showsLocked {
+            for row in lockedRows {
+                lines.append("\(row.title): \(statusIt("absent"))")
+                lines.append("Non su questo modello")
+            }
+        }
         let text = lines.joined(separator: "\n")
         return text.count > 3500 ? String(text.prefix(3480)) + "…" : text
     }
@@ -353,16 +385,21 @@ final class DiagModel: ObservableObject {
             sheetFile = nil
             return
         }
-        let rows = activeRows.map { row in
+        var rows = activeRows.map { row in
             let item = outcomes.first { $0.id == row.id }
             return (group: row.group, title: row.title, status: item?.status ?? "skip", note: item?.note ?? "")
+        }
+        if showsLocked {
+            rows += lockedRows.map { row in
+                (group: "Non su questo modello", title: row.title, status: "absent", note: "Non su questo modello")
+            }
         }
         sheetFile = SheetPDF.write(SheetFacts(
             grade: choice.id,
             title: choice.title,
             line: choice.line,
             when: when,
-            device: "\(Machine.described) · iOS \(UIDevice.current.systemVersion)",
+            device: "\(Machine.described) · \(HardwareFit.systemName) \(UIDevice.current.systemVersion)",
             cable: withCable,
             box: withBox,
             rows: rows
@@ -396,7 +433,7 @@ final class DiagModel: ObservableObject {
                 "userAgent": "RefurbX Diagnostica",
                 "platform": "ios",
                 "model": Machine.described,
-                "os": "iOS \(UIDevice.current.systemVersion)",
+                "os": "\(HardwareFit.systemName) \(UIDevice.current.systemVersion)",
                 "screen": screen,
                 "dpr": scale,
                 "cores": ProcessInfo.processInfo.processorCount,
@@ -436,9 +473,13 @@ final class DiagModel: ObservableObject {
         gyroTilt = false
         gyroPitch = false
         gyroYaw = false
+        gyroRollDeg = 0
+        gyroPitchDeg = 0
+        gyroYawDeg = 0
         dotX = 0
         dotY = 0
         facePoints = []
+        faceShot = nil
         faceArmed = false
         depthFrames = 0
         depthArmed = false
@@ -459,6 +500,9 @@ final class DiagModel: ObservableObject {
         lightWarm = 0
         lightFloor = 0
         lightCeil = 0
+        lightBase = 0
+        lightSawDark = false
+        lightSawBright = false
     }
 
     func beginCurrent() {
@@ -546,7 +590,7 @@ final class DiagModel: ObservableObject {
             ]
         case "force": startForce()
         case "stylus":
-            settle("stylus", "absent", "L'iPhone non riceve la Apple Pencil")
+            startStylus()
         default:
             settle(row.id, "skip", "Test non eseguito")
         }
@@ -581,7 +625,7 @@ final class DiagModel: ObservableObject {
     private func readIdentity() {
         let code = Machine.identifier
         let name = Machine.commercialName
-        let os = "iOS \(UIDevice.current.systemVersion)"
+        let os = "\(HardwareFit.systemName) \(UIDevice.current.systemVersion)"
         let scale = UIScreen.main.scale
         let points = "\(Int(UIScreen.main.bounds.width))×\(Int(UIScreen.main.bounds.height))"
         let pixels = "\(Int(UIScreen.main.bounds.width * scale))×\(Int(UIScreen.main.bounds.height * scale))"
@@ -622,7 +666,7 @@ final class DiagModel: ObservableObject {
             if kind == "wifi" {
                 self.keyOk = true
                 self.detail = "Wi-Fi collegato"
-                self.hint = "Il telefono è sul Wi-Fi. Conferma se è la rete del negozio."
+                self.hint = "Il telefono è sul Wi-Fi. Conferma se è la rete."
                 self.actions = [
                     Act(label: "Wi-Fi collegato", status: "pass", note: "Wi-Fi collegato"),
                     Act(label: "Non è collegato", status: "fail", note: "Wi-Fi non collegato"),
@@ -738,6 +782,11 @@ final class DiagModel: ObservableObject {
         var stillSamples = 0
         let started = motion.attitude { [weak self] roll, pitch, yaw, rate in
             guard let self, self.still("gyroscope") else { return }
+            self.gyroRollDeg = roll * 180 / .pi
+            self.gyroPitchDeg = pitch * 180 / .pi
+            self.gyroYawDeg = yaw * 180 / .pi
+            let done = [self.gyroRest, self.gyroTilt, self.gyroPitch, self.gyroYaw].filter { $0 }.count
+            self.detail = "\(done) di 4"
             if origin == nil {
                 origin = (roll, pitch, yaw)
                 return
@@ -770,7 +819,7 @@ final class DiagModel: ObservableObject {
         bestGps = nil
         actions = [
             Act(label: "Apri Impostazioni", status: "open-settings", note: ""),
-            Act(label: "Nessun fix", status: "skip", note: "Nessun fix in negozio"),
+            Act(label: "Nessun fix", status: "skip", note: "Nessun fix"),
         ]
         place.onFix = { [weak self] location in
             guard let self, self.still("gps"), location.horizontalAccuracy >= 0 else { return }
@@ -1154,7 +1203,7 @@ final class DiagModel: ObservableObject {
             settle("truedepth", "absent", "Niente fotocamera TrueDepth")
             return
         }
-        hint = "I puntini bianchi sono il volto visto dal sensore TrueDepth, non dalla fotocamera a colori. Gira la testa: i puntini devono girare con te. La foto a infrarossi non si vede, resta in iOS."
+        hint = "In alto a destra c'è la fotocamera a colori, come in una videochiamata. Al centro i puntini bianchi sono il volto del sensore TrueDepth. Gira la testa: devono girare con te. L'infrarosso resta in iOS."
         actions = [
             Act(label: "I puntini girano", status: "pass", note: "TrueDepth ha seguito la testa. L'immagine a infrarossi resta nel sistema."),
             Act(label: "Non seguono la testa", status: "fail", note: "TrueDepth presente, la testa non è seguita"),
@@ -1164,11 +1213,13 @@ final class DiagModel: ObservableObject {
     }
 
     private func armFace() {
-        faceTrack.onPicture = { [weak self] points in
-            guard let self, self.still("truedepth"), points.count > 40 else { return }
+        faceTrack.onPicture = { [weak self] points, shot in
+            guard let self, self.still("truedepth") else { return }
+            if let shot { self.faceShot = shot }
+            guard points.count > 40 else { return }
             self.facePoints = points
             self.faceArmed = true
-            self.detail = "Volto seguito. Gira la testa: i puntini devono girare con te."
+            self.detail = "Volto seguito. La finestra piccola è la fotocamera, i puntini sono il TrueDepth."
         }
         faceTrack.start { _ in }
     }
@@ -1216,65 +1267,57 @@ final class DiagModel: ObservableObject {
         lightWarm = 0
         lightFloor = 0
         lightCeil = 0
-        lightLevel = 0
-        hint = "Apro la fotocamera dietro. Poi copri l'obiettivo con la mano e scoprilo: la barra deve muoversi."
-        detail = "In avvio"
-        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
-        AVCaptureDevice.requestAccess(for: .video) { granted in
-            DispatchQueue.main.async {
-                guard self.still("light") else { return }
-                guard granted else {
-                    self.settle("light", "skip", "Permesso fotocamera negato")
-                    return
-                }
-                self.showCamera = true
-                self.camera.start(front: false, onFocus: {}, onRunning: {
-                    guard self.still("light") else { return }
-                    self.hint = "Copri e scopri l'obiettivo posteriore. iOS non dà i lux: la barra segue la luce vista dalla fotocamera."
-                    self.detail = "Copri e scopri l'obiettivo"
-                    self.actions = [
-                        Act(label: "Non reagisce", status: "fail", note: "La fotocamera non ha reagito alla luce"),
-                        Act(label: "Salta", status: "skip", note: "Non eseguito"),
-                    ]
-                    self.pollLight()
-                }, onError: { message in
-                    self.settle("light", "fail", message)
-                })
-            }
+        lightBase = 0
+        lightSawDark = false
+        lightSawBright = false
+        showCamera = false
+        let now = Double(UIScreen.main.brightness)
+        lightLevel = now
+        hint = "Attiva la luminosità automatica. Copri il sensore davanti, in alto vicino alla capsula: non la fotocamera dietro. Lo schermo deve scurirsi, poi scoprilo."
+        detail = "Luminosità schermo \(Int((now * 100).rounded()))%"
+        actions = [
+            Act(label: "Si è scurito", status: "pass", note: "Luminosità automatica vista coprendo il sensore davanti"),
+            Act(label: "Non reagisce", status: "fail", note: "La luminosità automatica non reagisce"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
+        watch(UIScreen.brightnessDidChangeNotification) { [weak self] in
+            guard let self, self.still("light") else { return }
+            self.noteLight(Double(UIScreen.main.brightness))
         }
+        noteLight(now)
+        pollLight()
     }
 
     private func pollLight() {
-        later(0.25) {
+        later(0.2) {
             guard self.still("light") else { return }
-            if let value = self.camera.ambientLevel() {
-                self.noteLight(value)
-            }
+            self.noteLight(Double(UIScreen.main.brightness))
             guard self.still("light") else { return }
             self.pollLight()
         }
     }
 
     private func noteLight(_ value: Double) {
-        lightWarm += 1
-        if lightWarm <= 4 {
-            lightLevel = 0.45
+        let clamped = min(1, max(0, value))
+        lightLevel = clamped
+        detail = "Luminosità schermo \(Int((clamped * 100).rounded()))%"
+        if lightWarm == 0 {
+            lightBase = clamped
+            lightFloor = clamped
+            lightCeil = clamped
+            lightWarm = 1
             return
         }
-        if lightWarm == 5 {
-            lightFloor = value
-            lightCeil = value
+        lightWarm += 1
+        lightFloor = min(lightFloor, clamped)
+        lightCeil = max(lightCeil, clamped)
+        if clamped < lightBase - 0.08 { lightSawDark = true }
+        if lightSawDark && clamped > lightFloor + 0.08 { lightSawBright = true }
+        if lightSawDark && !lightSawBright {
+            hint = "Lo schermo si è scurito. Scopri il sensore davanti: la luminosità deve risalire."
         }
-        lightFloor = min(lightFloor, value)
-        lightCeil = max(lightCeil, value)
-        let span = lightCeil - lightFloor
-        lightLevel = span < 0.0000001 ? 0.5 : min(1, max(0, (value - lightFloor) / span))
-        let ratio = lightCeil / max(lightFloor, 1e-9)
-        if ratio > 1.15 {
-            detail = "La luce sta cambiando"
-        }
-        if lightWarm >= 10 && ratio >= 3 {
-            settle("light", "pass", "La fotocamera ha reagito coprendo e scoprendo l'obiettivo")
+        if lightSawDark && lightSawBright {
+            settle("light", "pass", "La luminosità automatica ha reagito coprendo e scoprendo il sensore davanti")
         }
     }
 
@@ -1308,7 +1351,7 @@ final class DiagModel: ObservableObject {
     }
 
     private func startCompass() {
-        hint = "Tieni il telefono in piano e ruotalo finché l'anello si riempie."
+        hint = "Tienilo in piano. Il numero è la direzione della parte alta. Gira finché i punti del quadrante si accendono."
         actions = [
             Act(label: "Non gira", status: "fail", note: "La bussola non segue la rotazione"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
@@ -1320,7 +1363,8 @@ final class DiagModel: ObservableObject {
             self.heading = heading.magneticHeading
             let bucket = Int(heading.magneticHeading / 45) % 8
             self.compassMarks.insert(bucket)
-            self.detail = "\(self.compassMarks.count) di 8 direzioni"
+            let degrees = Int(heading.magneticHeading.rounded()) % 360
+            self.detail = String(format: "%03d° · %@ · %d di 8", degrees, Self.cardinal(heading.magneticHeading), self.compassMarks.count)
             if self.compassMarks.count >= 6 {
                 self.settle("compass", "pass", "Anello seguito per \(self.compassMarks.count) direzioni")
             }
@@ -1345,7 +1389,9 @@ final class DiagModel: ObservableObject {
             settleSoon("headphones", "pass", "Cuffia già collegata")
             return
         }
-        hint = "Collega cuffie Bluetooth o un adattatore. L'iPhone non ha il jack. Se non ne hai, salta."
+        hint = HardwareFit.pad
+            ? "Collega le cuffie se le hai. Se non le hai, salta."
+            : "Collega cuffie Bluetooth o un adattatore. L'iPhone non ha il jack. Se non ne hai, salta."
         watch(AVAudioSession.routeChangeNotification) { [weak self] in
             if self?.headphonesNow() == true { self?.settle("headphones", "pass", "Cuffia collegata") }
         }
@@ -1355,6 +1401,18 @@ final class DiagModel: ObservableObject {
         AVAudioSession.sharedInstance().currentRoute.outputs.contains { port in
             port.portType == .headphones || port.portType == .bluetoothA2DP || port.portType == .bluetoothHFP || port.portType == .bluetoothLE || port.portType == .usbAudio
         }
+    }
+
+    private func startStylus() {
+        guard HardwareFit.acceptsPencil else {
+            settle("stylus", "absent", "Questo modello non riceve la penna")
+            return
+        }
+        hint = "Scrivi con la Apple Pencil. Il dito non conta."
+        actions = [
+            Act(label: "Non ho la penna", status: "skip", note: "Penna non provata"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
     }
 
     private func startForce() {
@@ -1503,6 +1561,14 @@ final class DiagModel: ObservableObject {
     private static func hasRingSwitch() -> Bool {
         guard let major = Machine.iphoneMajor else { return false }
         return major <= 15
+    }
+
+    private static func cardinal(_ heading: Double) -> String {
+        let names = ["Nord", "Nord-est", "Est", "Sud-est", "Sud", "Sud-ovest", "Ovest", "Nord-ovest"]
+        let turn = heading.truncatingRemainder(dividingBy: 360)
+        let positive = turn < 0 ? turn + 360 : turn
+        let index = Int((positive + 22.5) / 45) % 8
+        return names[index]
     }
 
     private static func angleGap(_ a: Double, _ b: Double) -> Double {

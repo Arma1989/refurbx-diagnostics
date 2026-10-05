@@ -12,10 +12,13 @@ import SwiftUI
 import UIKit
 
 enum HardwareFit {
+    static var pad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+    static var systemName: String { pad ? "iPadOS" : "iOS" }
+
     static func supports(_ id: String) -> Bool {
         switch id {
         case "stylus":
-            return false
+            return acceptsPencil
         case "force":
             return UIScreen.main.traitCollection.forceTouchCapability == .available
         case "lidar":
@@ -31,15 +34,33 @@ enum HardwareFit {
             guard let major = Machine.iphoneMajor else { return false }
             return major <= 15
         case "wireless":
+            if pad { return false }
             guard let major = Machine.iphoneMajor else { return true }
             return major >= 10
+        case "nfc":
+            return NFCTagReaderSession.readingAvailable
+        case "proximity", "earpiece", "call":
+            return !pad
         default:
             return true
         }
     }
 
+    static var acceptsPencil: Bool {
+        guard pad else { return false }
+        guard let major = Machine.ipadMajor else { return true }
+        if let name = Machine.commercialName?.lowercased(), name.contains("pro") { return true }
+        if major >= 7 { return true }
+        if major == 6, let minor = Machine.ipadMinor, (3...8).contains(minor) { return true }
+        return false
+    }
+
     static func rows(in group: String?) -> [Catalog.Row] {
         Catalog.rows.filter { (group == nil || $0.group == group) && supports($0.id) }
+    }
+
+    static var lockedRows: [Catalog.Row] {
+        Catalog.rows.filter { !supports($0.id) }
     }
 }
 
@@ -52,12 +73,16 @@ enum Machine {
         }
     }
 
-    static var iphoneMajor: Int? {
+    static var iphoneMajor: Int? { applePart("iPhone", 0) }
+    static var ipadMajor: Int? { applePart("iPad", 0) }
+    static var ipadMinor: Int? { applePart("iPad", 1) }
+
+    private static func applePart(_ prefix: String, _ index: Int) -> Int? {
         let id = identifier
-        guard id.hasPrefix("iPhone") else { return nil }
-        let rest = id.dropFirst("iPhone".count)
-        let major = rest.split(separator: ",").first ?? ""
-        return Int(major)
+        guard id.hasPrefix(prefix) else { return nil }
+        let parts = id.dropFirst(prefix.count).split(separator: ",")
+        guard parts.indices.contains(index) else { return nil }
+        return Int(parts[index])
     }
 
     static var commercialName: String? {
@@ -141,6 +166,111 @@ enum Machine {
         "iPhone2,1": "iPhone 3GS",
         "iPhone1,2": "iPhone 3G",
         "iPhone1,1": "iPhone",
+        "iPad17,1": "iPad Pro 11\" (M5)",
+        "iPad17,2": "iPad Pro 11\" (M5)",
+        "iPad17,3": "iPad Pro 13\" (M5)",
+        "iPad17,4": "iPad Pro 13\" (M5)",
+        "iPad16,1": "iPad mini (A17 Pro)",
+        "iPad16,2": "iPad mini (A17 Pro)",
+        "iPad16,3": "iPad Pro 11\" (M4)",
+        "iPad16,4": "iPad Pro 11\" (M4)",
+        "iPad16,5": "iPad Pro 13\" (M4)",
+        "iPad16,6": "iPad Pro 13\" (M4)",
+        "iPad16,8": "iPad Air 11\" (M4)",
+        "iPad16,9": "iPad Air 11\" (M4)",
+        "iPad16,10": "iPad Air 13\" (M4)",
+        "iPad16,11": "iPad Air 13\" (M4)",
+        "iPad15,3": "iPad Air 11\" (M3)",
+        "iPad15,4": "iPad Air 11\" (M3)",
+        "iPad15,5": "iPad Air 13\" (M3)",
+        "iPad15,6": "iPad Air 13\" (M3)",
+        "iPad15,7": "iPad (A16)",
+        "iPad15,8": "iPad (A16)",
+        "iPad14,1": "iPad mini (6ª gen.)",
+        "iPad14,2": "iPad mini (6ª gen.)",
+        "iPad14,3": "iPad Pro 11\" (4ª gen.)",
+        "iPad14,4": "iPad Pro 11\" (4ª gen.)",
+        "iPad14,5": "iPad Pro 12,9\" (6ª gen.)",
+        "iPad14,6": "iPad Pro 12,9\" (6ª gen.)",
+        "iPad14,8": "iPad Air 11\" (M2)",
+        "iPad14,9": "iPad Air 11\" (M2)",
+        "iPad14,10": "iPad Air 13\" (M2)",
+        "iPad14,11": "iPad Air 13\" (M2)",
+        "iPad13,1": "iPad Air (4ª gen.)",
+        "iPad13,2": "iPad Air (4ª gen.)",
+        "iPad13,4": "iPad Pro 11\" (3ª gen.)",
+        "iPad13,5": "iPad Pro 11\" (3ª gen.)",
+        "iPad13,6": "iPad Pro 11\" (3ª gen.)",
+        "iPad13,7": "iPad Pro 11\" (3ª gen.)",
+        "iPad13,8": "iPad Pro 12,9\" (5ª gen.)",
+        "iPad13,9": "iPad Pro 12,9\" (5ª gen.)",
+        "iPad13,10": "iPad Pro 12,9\" (5ª gen.)",
+        "iPad13,11": "iPad Pro 12,9\" (5ª gen.)",
+        "iPad13,16": "iPad Air (5ª gen.)",
+        "iPad13,17": "iPad Air (5ª gen.)",
+        "iPad13,18": "iPad (10ª gen.)",
+        "iPad13,19": "iPad (10ª gen.)",
+        "iPad12,1": "iPad (9ª gen.)",
+        "iPad12,2": "iPad (9ª gen.)",
+        "iPad11,1": "iPad mini (5ª gen.)",
+        "iPad11,2": "iPad mini (5ª gen.)",
+        "iPad11,3": "iPad Air (3ª gen.)",
+        "iPad11,4": "iPad Air (3ª gen.)",
+        "iPad11,6": "iPad (8ª gen.)",
+        "iPad11,7": "iPad (8ª gen.)",
+        "iPad8,1": "iPad Pro 11\"",
+        "iPad8,2": "iPad Pro 11\"",
+        "iPad8,3": "iPad Pro 11\"",
+        "iPad8,4": "iPad Pro 11\"",
+        "iPad8,5": "iPad Pro 12,9\" (3ª gen.)",
+        "iPad8,6": "iPad Pro 12,9\" (3ª gen.)",
+        "iPad8,7": "iPad Pro 12,9\" (3ª gen.)",
+        "iPad8,8": "iPad Pro 12,9\" (3ª gen.)",
+        "iPad8,9": "iPad Pro 11\" (2ª gen.)",
+        "iPad8,10": "iPad Pro 11\" (2ª gen.)",
+        "iPad8,11": "iPad Pro 12,9\" (4ª gen.)",
+        "iPad8,12": "iPad Pro 12,9\" (4ª gen.)",
+        "iPad7,1": "iPad Pro 12,9\" (2ª gen.)",
+        "iPad7,2": "iPad Pro 12,9\" (2ª gen.)",
+        "iPad7,3": "iPad Pro 10,5\"",
+        "iPad7,4": "iPad Pro 10,5\"",
+        "iPad7,5": "iPad (6ª gen.)",
+        "iPad7,6": "iPad (6ª gen.)",
+        "iPad7,11": "iPad (7ª gen.)",
+        "iPad7,12": "iPad (7ª gen.)",
+        "iPad6,3": "iPad Pro 9,7\"",
+        "iPad6,4": "iPad Pro 9,7\"",
+        "iPad6,7": "iPad Pro 12,9\"",
+        "iPad6,8": "iPad Pro 12,9\"",
+        "iPad6,11": "iPad (5ª gen.)",
+        "iPad6,12": "iPad (5ª gen.)",
+        "iPad5,1": "iPad mini 4",
+        "iPad5,2": "iPad mini 4",
+        "iPad5,3": "iPad Air 2",
+        "iPad5,4": "iPad Air 2",
+        "iPad4,1": "iPad Air",
+        "iPad4,2": "iPad Air",
+        "iPad4,3": "iPad Air",
+        "iPad4,4": "iPad mini 2",
+        "iPad4,5": "iPad mini 2",
+        "iPad4,6": "iPad mini 2",
+        "iPad4,7": "iPad mini 3",
+        "iPad4,8": "iPad mini 3",
+        "iPad4,9": "iPad mini 3",
+        "iPad3,1": "iPad (3ª gen.)",
+        "iPad3,2": "iPad (3ª gen.)",
+        "iPad3,3": "iPad (3ª gen.)",
+        "iPad3,4": "iPad (4ª gen.)",
+        "iPad3,5": "iPad (4ª gen.)",
+        "iPad3,6": "iPad (4ª gen.)",
+        "iPad2,1": "iPad 2",
+        "iPad2,2": "iPad 2",
+        "iPad2,3": "iPad 2",
+        "iPad2,4": "iPad 2",
+        "iPad2,5": "iPad mini",
+        "iPad2,6": "iPad mini",
+        "iPad2,7": "iPad mini",
+        "iPad1,1": "iPad",
     ]
 }
 
@@ -830,19 +960,24 @@ enum DepthImage {
 
 final class FaceTrackProbe: NSObject, ARSessionDelegate {
     private let session = ARSession()
+    private let updates = DispatchQueue(label: "eu.refurbx.face", qos: .userInitiated)
+    private let ciContext = CIContext()
     private var finished = false
     private var token = 0
+    private var lastShot = 0.0
     private var onResult: ((Bool) -> Void)?
-    var onPicture: (([CGPoint]) -> Void)?
+    var onPicture: ((_ points: [CGPoint], _ camera: UIImage?) -> Void)?
 
     func start(_ onResult: @escaping (Bool) -> Void) {
         token += 1
         finished = false
+        lastShot = 0
         self.onResult = onResult
         guard ARFaceTrackingConfiguration.isSupported else {
             finish(false)
             return
         }
+        session.delegateQueue = updates
         session.delegate = self
         session.run(ARFaceTrackingConfiguration(), options: [.resetTracking, .removeExistingAnchors])
     }
@@ -855,26 +990,44 @@ final class FaceTrackProbe: NSObject, ARSessionDelegate {
     }
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
-        guard let face = frame.anchors.compactMap({ $0 as? ARFaceAnchor }).first else { return }
-        let vertices = face.geometry.vertices
-        guard vertices.count > 100 else { return }
-        let camera = frame.camera
-        let viewport = CGSize(width: 900, height: 1600)
+        let shot = selfie(frame.capturedImage)
         var points: [CGPoint] = []
-        points.reserveCapacity(vertices.count / 2)
-        for index in stride(from: 0, to: vertices.count, by: 2) {
-            let vertex = vertices[index]
-            let world = face.transform * simd_float4(vertex.x, vertex.y, vertex.z, 1)
-            let projected = camera.projectPoint(simd_float3(world.x, world.y, world.z), orientation: .portrait, viewportSize: viewport)
-            let x = projected.x / viewport.width
-            let y = projected.y / viewport.height
-            if x < -0.15 || x > 1.15 || y < -0.15 || y > 1.15 { continue }
-            points.append(CGPoint(x: min(0.98, max(0.02, x)), y: min(0.98, max(0.02, y))))
+        if let face = frame.anchors.compactMap({ $0 as? ARFaceAnchor }).first {
+            let vertices = face.geometry.vertices
+            if vertices.count > 100 {
+                let camera = frame.camera
+                let viewport = CGSize(width: 900, height: 1600)
+                points.reserveCapacity(vertices.count / 2)
+                for index in stride(from: 0, to: vertices.count, by: 2) {
+                    let vertex = vertices[index]
+                    let world = face.transform * simd_float4(vertex.x, vertex.y, vertex.z, 1)
+                    let projected = camera.projectPoint(simd_float3(world.x, world.y, world.z), orientation: .portrait, viewportSize: viewport)
+                    let x = 1 - (projected.x / viewport.width)
+                    let y = projected.y / viewport.height
+                    if x < -0.15 || x > 1.15 || y < -0.15 || y > 1.15 { continue }
+                    points.append(CGPoint(x: min(0.98, max(0.02, x)), y: min(0.98, max(0.02, y))))
+                }
+            }
         }
-        guard points.count > 40 else { return }
+        let picture = points.count > 40 ? points : []
         DispatchQueue.main.async { [weak self] in
-            self?.onPicture?(points)
+            self?.onPicture?(picture, shot)
         }
+    }
+
+    private func selfie(_ buffer: CVPixelBuffer) -> UIImage? {
+        let now = CFAbsoluteTimeGetCurrent()
+        guard now - lastShot > 0.12 else { return nil }
+        lastShot = now
+        let source = CIImage(cvPixelBuffer: buffer)
+        let oriented = source
+            .oriented(CGImagePropertyOrientation.right)
+            .oriented(CGImagePropertyOrientation.upMirrored)
+        let longest = max(oriented.extent.width, oriented.extent.height)
+        let scale = min(1, 420 / max(longest, 1))
+        let fitted = oriented.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        guard let cg = ciContext.createCGImage(fitted, from: fitted.extent) else { return nil }
+        return UIImage(cgImage: cg)
     }
 
     func session(_ session: ARSession, didFailWithError error: Error) {

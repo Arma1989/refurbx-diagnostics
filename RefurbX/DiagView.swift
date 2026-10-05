@@ -1,4 +1,4 @@
-import AVKit
+import AVFoundation
 import MapKit
 import MediaPlayer
 import SwiftUI
@@ -62,7 +62,7 @@ private struct IntroScreen: View {
                     Circle()
                         .stroke(cyan.opacity(0.55), lineWidth: 1)
                         .frame(width: 52, height: 52)
-                    Image(systemName: "iphone")
+                    Image(systemName: HardwareFit.pad ? "ipad" : "iphone")
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(cyan)
                 }
@@ -126,12 +126,34 @@ private struct IntroScreen: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    if !HardwareFit.lockedRows.isEmpty {
+                        Text("Non su questo modello")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color.white.opacity(0.38))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 10)
+                        ForEach(HardwareFit.lockedRows, id: \.id) { row in
+                            HStack {
+                                Text(row.title)
+                                    .font(.system(size: 15, weight: .semibold))
+                                Spacer()
+                                Text("Non disponibile")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundStyle(Color.white.opacity(0.32))
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 44)
+                            .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                    }
                 }
                 .padding(.bottom, 12)
             }
         }
         .padding(.horizontal, 22)
         .padding(.top, 28)
+        .frame(maxWidth: 720)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
 
@@ -157,6 +179,8 @@ private struct RunScreen: View {
         }
         .padding(.horizontal, 22)
         .padding(.top, 16)
+        .frame(maxWidth: 720)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !model.actions.isEmpty {
                 ActionBar {
@@ -193,13 +217,7 @@ private struct RunScreen: View {
                 )
             }
         } else if model.currentId == "light" {
-            VStack(spacing: 12) {
-                LightBar(level: model.lightLevel)
-                if model.showCamera {
-                    CameraPreview(session: model.camera.session, front: false)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                }
-            }
+            LightBar(level: model.lightLevel)
         } else if model.currentId == "gps" {
             GpsBoard(accuracy: model.gpsAccuracy, latitude: model.gpsLatitude, longitude: model.gpsLongitude)
         } else if model.currentId == "multitouch" {
@@ -211,7 +229,7 @@ private struct RunScreen: View {
         } else if model.currentId == "compass" {
             CompassRing(marks: model.compassMarks, heading: model.heading)
         } else if model.currentId == "truedepth" {
-            FacePlate(points: model.facePoints)
+            FacePlate(points: model.facePoints, image: model.faceShot)
         } else if model.currentId == "lidar" {
             ZStack {
                 RoundedRectangle(cornerRadius: 16).fill(Color(white: 0.72))
@@ -231,6 +249,14 @@ private struct RunScreen: View {
             .clipShape(RoundedRectangle(cornerRadius: 16))
         } else if model.currentId == "microphone" || model.audioSpot == "speaker" || model.audioSpot == "ear" {
             PhoneMap(spot: model.currentId == "microphone" ? model.micSpot : model.audioSpot, level: model.currentId == "microphone" ? model.micLevel : 0)
+        } else if model.currentId == "stylus" {
+            PencilPad { model.notePencil() }
+                .overlay {
+                    Text("Scrivi con la penna")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .allowsHitTesting(false)
+                }
         } else if model.currentId == "force" {
             ForcePad { model.noteForce($0, max: $1) }
                 .overlay {
@@ -281,31 +307,66 @@ private struct RunScreen: View {
 
 private struct GradeFilm: View {
     let name: String
-    @State private var player: AVQueuePlayer?
-    @State private var looper: AVPlayerLooper?
 
     var body: some View {
-        VideoPlayer(player: player)
-            .aspectRatio(360.0 / 640.0, contentMode: .fit)
-            .frame(maxHeight: 280)
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Look.line, lineWidth: 1))
-            .onAppear { start() }
-            .onChange(of: name) { _, _ in start() }
-            .onDisappear {
-                player?.pause()
-                looper = nil
-                player = nil
-            }
+        HStack {
+            Spacer(minLength: 0)
+            FilmLoop(name: name)
+                .frame(width: 180, height: 320)
+                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(Look.line, lineWidth: 1))
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private struct FilmLoop: UIViewRepresentable {
+    let name: String
+
+    func makeUIView(context: Context) -> FilmView {
+        let view = FilmView()
+        view.play(name: name)
+        return view
     }
 
-    private func start() {
+    func updateUIView(_ uiView: FilmView, context: Context) {
+        uiView.play(name: name)
+    }
+
+    static func dismantleUIView(_ uiView: FilmView, coordinator: ()) {
+        uiView.stop()
+    }
+}
+
+final class FilmView: UIView {
+    override class var layerClass: AnyClass { AVPlayerLayer.self }
+    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+    private var queue: AVQueuePlayer?
+    private var looper: AVPlayerLooper?
+    private var current = ""
+
+    func play(name: String) {
+        if current == name {
+            queue?.play()
+            return
+        }
+        current = name
         guard let url = Bundle.main.url(forResource: name, withExtension: "mp4") else { return }
-        let queue = AVQueuePlayer()
-        looper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(url: url))
-        player = queue
-        queue.isMuted = true
-        queue.play()
+        let player = AVQueuePlayer()
+        player.isMuted = true
+        looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
+        queue = player
+        playerLayer.videoGravity = .resizeAspectFill
+        playerLayer.player = player
+        player.play()
+    }
+
+    func stop() {
+        queue?.pause()
+        looper = nil
+        queue = nil
+        playerLayer.player = nil
+        current = ""
     }
 }
 
@@ -351,7 +412,7 @@ private struct ReportScreen: View {
                             .foregroundStyle(Look.mute)
                     }
                 }
-                Text("Guarda l'esempio e scegli il grado che somiglia di più al telefono.")
+                Text("Tocca A+, A, B o C: l'esempio parte da solo, senza play.")
                     .font(.system(size: 16))
                     .foregroundStyle(Look.ink)
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
@@ -416,6 +477,30 @@ private struct ReportScreen: View {
                         }
                     }
                 }
+                if model.showsLocked && !model.lockedRows.isEmpty {
+                    Text("NON SU QUESTO MODELLO")
+                        .font(.system(size: 13, weight: .semibold))
+                        .tracking(0.8)
+                        .foregroundStyle(Color.white.opacity(0.38))
+                        .padding(.top, 6)
+                    BenchCard {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(model.lockedRows.enumerated()), id: \.element.id) { offset, row in
+                                HStack {
+                                    Text(row.title)
+                                    Spacer()
+                                    Text("Non disponibile")
+                                        .font(.system(size: 13, weight: .semibold))
+                                }
+                                .foregroundStyle(Color.white.opacity(0.35))
+                                .padding(.vertical, 10)
+                                if offset < model.lockedRows.count - 1 {
+                                    Rectangle().fill(Look.line).frame(height: 1)
+                                }
+                            }
+                        }
+                    }
+                }
                 BenchCard {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("BANCO")
@@ -469,6 +554,8 @@ private struct ReportScreen: View {
             }
             .padding(.horizontal, 22)
             .padding(.vertical, 20)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -928,27 +1015,49 @@ private struct PhoneMap: View {
 
 private struct FacePlate: View {
     let points: [CGPoint]
+    let image: UIImage?
 
     var body: some View {
-        Canvas { context, size in
-            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
-            guard points.count > 40 else { return }
-            var dots = Path()
-            for point in points {
-                let center = CGPoint(x: point.x * size.width, y: point.y * size.height)
-                dots.addEllipse(in: CGRect(x: center.x - 1.1, y: center.y - 1.1, width: 2.2, height: 2.2))
+        GeometryReader { geo in
+            let pipW = min(132, geo.size.width * 0.34)
+            let pipH = pipW * 4 / 3
+            ZStack {
+                Canvas { context, size in
+                    context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
+                    guard points.count > 40 else { return }
+                    var dots = Path()
+                    for point in points {
+                        let center = CGPoint(x: point.x * size.width, y: point.y * size.height)
+                        dots.addEllipse(in: CGRect(x: center.x - 1.4, y: center.y - 1.4, width: 2.8, height: 2.8))
+                    }
+                    context.fill(dots, with: .color(.white))
+                }
+                if points.count < 40 {
+                    Text("Avvicina il volto. I puntini girano con la testa.")
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .padding(.horizontal, 36)
+                        .padding(.trailing, pipW)
+                }
             }
-            context.fill(dots, with: .color(.white))
+            .overlay(alignment: .topTrailing) {
+                Group {
+                    if let image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Color.white.opacity(0.08)
+                    }
+                }
+                .frame(width: pipW, height: pipH)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.9), lineWidth: 2))
+                .shadow(color: .black.opacity(0.45), radius: 8, y: 3)
+                .padding(12)
+            }
         }
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay {
-            if points.count < 40 {
-                Text("Avvicina il volto. I puntini girano con la testa.")
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .padding(24)
-            }
-        }
     }
 }
 
@@ -975,7 +1084,7 @@ private struct LightBar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Luce vista dalla fotocamera")
+            Text("Luminosità dello schermo")
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.7))
             GeometryReader { geo in
@@ -1038,24 +1147,90 @@ private struct GyroList: View {
     @ObservedObject var model: DiagModel
 
     var body: some View {
-        VStack(spacing: 8) {
-            row("Fermo", model.gyroRest)
-            row("Di lato", model.gyroTilt)
-            row("Avanti e indietro", model.gyroPitch)
-            row("Intorno a te", model.gyroYaw)
+        VStack(spacing: 14) {
+            GeometryReader { geo in
+                let side = min(geo.size.width, geo.size.height)
+                horizon(side)
+                    .frame(width: side, height: side)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            HStack(spacing: 8) {
+                axis("Rollio", model.gyroRollDeg, model.gyroTilt)
+                axis("Beccheggio", model.gyroPitchDeg, model.gyroPitch)
+                axis("Imbardata", model.gyroYawDeg, model.gyroYaw)
+            }
+            HStack(spacing: 8) {
+                Image(systemName: model.gyroRest ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(model.gyroRest ? Look.pass : Color.white.opacity(0.35))
+                Text(model.gyroRest ? "Fermo rilevato" : "Tienilo fermo un attimo")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(model.gyroRest ? Look.pass : Look.mute)
+            }
         }
     }
 
-    private func row(_ title: String, _ on: Bool) -> some View {
-        HStack {
-            Text(title).foregroundStyle(.white)
-            Spacer()
-            Text(on ? "Fatto" : "–").foregroundStyle(on ? cyan : .white.opacity(0.45))
+    private func horizon(_ side: CGFloat) -> some View {
+        let pitch = max(-35, min(35, model.gyroPitchDeg))
+        let shift = CGFloat(pitch / 35) * side * 0.28
+        return ZStack {
+            Circle().stroke(Color.white.opacity(0.28), lineWidth: 2)
+            ZStack {
+                VStack(spacing: 0) {
+                    Color(red: 0.16, green: 0.40, blue: 0.72)
+                    Color(red: 0.34, green: 0.24, blue: 0.14)
+                }
+                .frame(width: side * 1.7, height: side * 1.7)
+                .offset(y: shift)
+                Capsule()
+                    .fill(Color.white.opacity(0.9))
+                    .frame(width: side * 0.46, height: 2)
+                Capsule()
+                    .fill(Color.white.opacity(0.45))
+                    .frame(width: side * 0.22, height: 2)
+                    .offset(y: -side * 0.12)
+                Capsule()
+                    .fill(Color.white.opacity(0.45))
+                    .frame(width: side * 0.22, height: 2)
+                    .offset(y: side * 0.12)
+            }
+            .rotationEffect(.degrees(-model.gyroRollDeg))
+            .clipShape(Circle())
+            HStack(spacing: side * 0.07) {
+                Capsule().fill(cyan).frame(width: side * 0.2, height: 3)
+                Circle().stroke(cyan, lineWidth: 2).frame(width: 10, height: 10)
+                Capsule().fill(cyan).frame(width: side * 0.2, height: 3)
+            }
+            Text(String(format: "Imb. %+.0f°", model.gyroYawDeg))
+                .font(.system(size: max(11, side * 0.055), weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(.black.opacity(0.4), in: Capsule())
+                .offset(y: side * 0.34)
         }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 52)
-        .background(Look.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Look.line, lineWidth: 1))
+    }
+
+    private func axis(_ title: String, _ degrees: Double, _ on: Bool) -> some View {
+        VStack(spacing: 2) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Look.mute)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(String(format: "%+.0f°", degrees))
+                .font(.system(size: 18, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(on ? Look.pass : .white)
+            Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(on ? Look.pass : Color.white.opacity(0.35))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(Look.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(on ? Look.pass.opacity(0.7) : Look.line, lineWidth: 1))
     }
 }
 
@@ -1063,22 +1238,125 @@ private struct CompassRing: View {
     let marks: Set<Int>
     let heading: Double
 
+    private var rose: Double {
+        let turn = heading.truncatingRemainder(dividingBy: 360)
+        return turn < 0 ? turn + 360 : turn
+    }
+
+    private var cardinal: String {
+        let names = ["Nord", "Nord-est", "Est", "Sud-est", "Sud", "Sud-ovest", "Ovest", "Nord-ovest"]
+        return names[Int((rose + 22.5) / 45) % 8]
+    }
+
     var body: some View {
-        ZStack {
-            ForEach(0..<8, id: \.self) { index in
-                Capsule()
-                    .fill(marks.contains(index) ? cyan : Color.white.opacity(0.2))
-                    .frame(width: 10, height: 22)
-                    .offset(y: -108)
-                    .rotationEffect(.degrees(Double(index) * 45))
-            }
-            Text("↑")
-                .font(.system(size: 42, weight: .semibold))
-                .foregroundStyle(.white)
-                .rotationEffect(.degrees(heading))
+        GeometryReader { geo in
+            let side = min(geo.size.width, geo.size.height, 340)
+            dial(side)
+                .frame(width: side, height: side)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 260, height: 260)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func dial(_ side: CGFloat) -> some View {
+        let radius = side / 2
+        return ZStack {
+            Circle().fill(Color.white.opacity(0.04))
+            Circle().stroke(Color.white.opacity(0.22), lineWidth: 2)
+            Circle().stroke(Color.white.opacity(0.08), lineWidth: side * 0.045).padding(side * 0.03)
+            ZStack {
+                ForEach(0..<72, id: \.self) { tick in
+                    let major = tick % 6 == 0
+                    Capsule()
+                        .fill(Color.white.opacity(major ? 0.92 : 0.3))
+                        .frame(width: major ? 2 : 1, height: major ? side * 0.05 : side * 0.026)
+                        .offset(y: -(radius - side * 0.05))
+                        .rotationEffect(.degrees(Double(tick) * 5))
+                }
+                ForEach(0..<12, id: \.self) { step in
+                    if step % 3 != 0 {
+                        Text("\(step * 30)")
+                            .font(.system(size: side * 0.042, weight: .medium))
+                            .monospacedDigit()
+                            .foregroundStyle(Color.white.opacity(0.72))
+                            .offset(y: -(radius - side * 0.15))
+                            .rotationEffect(.degrees(Double(step) * 30))
+                    }
+                }
+                ForEach(0..<4, id: \.self) { index in
+                    let letter = ["N", "E", "S", "O"][index]
+                    Text(letter)
+                        .font(.system(size: letter == "N" ? side * 0.075 : side * 0.052, weight: .bold))
+                        .foregroundStyle(letter == "N" ? Look.fail : .white)
+                        .offset(y: -(radius - side * 0.15))
+                        .rotationEffect(.degrees(Double(index) * 90))
+                }
+                ForEach(0..<8, id: \.self) { index in
+                    Circle()
+                        .fill(marks.contains(index) ? Look.pass : Color.white.opacity(0.18))
+                        .frame(width: side * 0.028, height: side * 0.028)
+                        .offset(y: -(radius - side * 0.25))
+                        .rotationEffect(.degrees(Double(index) * 45))
+                }
+            }
+            .rotationEffect(.degrees(-rose))
+            CompassLubber()
+                .fill(cyan)
+                .frame(width: side * 0.048, height: side * 0.038)
+                .offset(y: -(radius - side * 0.02))
+            Circle()
+                .fill(Look.navy.opacity(0.94))
+                .frame(width: side * 0.36, height: side * 0.36)
+                .overlay(Circle().stroke(Color.white.opacity(0.14), lineWidth: 1))
+            VStack(spacing: 0) {
+                Text(String(format: "%03.0f°", rose))
+                    .font(.system(size: side * 0.1, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                Text(cardinal)
+                    .font(.system(size: side * 0.042, weight: .semibold))
+                    .foregroundStyle(Look.mute)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+        }
+    }
+}
+
+private struct CompassLubber: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct PencilPad: UIViewRepresentable {
+    let onPencil: () -> Void
+
+    func makeUIView(context: Context) -> PencilView {
+        let view = PencilView()
+        view.onPencil = onPencil
+        view.backgroundColor = UIColor(white: 1, alpha: 0.06)
+        view.layer.cornerRadius = 24
+        return view
+    }
+
+    func updateUIView(_ uiView: PencilView, context: Context) {
+        uiView.onPencil = onPencil
+    }
+}
+
+final class PencilView: UIView {
+    var onPencil: (() -> Void)?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { report(touches) }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { report(touches) }
+
+    private func report(_ touches: Set<UITouch>) {
+        if touches.contains(where: { $0.type == .pencil }) { onPencil?() }
     }
 }
 

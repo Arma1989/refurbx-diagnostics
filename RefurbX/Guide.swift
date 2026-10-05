@@ -40,8 +40,8 @@ private enum GuideCopy {
         case "display": return "Lo schermo cambia colore. Tocca per andare avanti e cerca macchie o pixel spenti."
         case "touch": return "Le celle sono piccole. Trascina un dito su tutte, anche sui bordi."
         case "multitouch": return "Appoggia due dita insieme, come nell'esempio."
-        case "force": return "Premi piano e poi forte. Compare solo se questo schermo misura la pressione."
-        case "stylus": return "La penna compare solo se questo modello la riceve."
+        case "force": return "Premi piano e poi forte nel riquadro. Questo schermo misura la pressione."
+        case "stylus": return "Scrivi con la Apple Pencil. Il dito non fa passare il test."
         case "speaker": return "Una nota sale dall'altoparlante in basso. Poi confermi a mano se è chiara."
         case "earpiece": return "Avvicina l'orecchio alla capsula in alto, segnata nell'esempio."
         case "microphone": return "Ogni microfono registra due secondi e mezzo. Poi riascolti e confermi a mano."
@@ -52,13 +52,13 @@ private enum GuideCopy {
         case "camera_front": return "Si apre la fotocamera davanti. Il volto deve essere dritto, in verticale."
         case "autofocus": return "Inquadra un codice QR con la camera dietro. Se lo legge, il test è ok."
         case "flash": return "Il flash si accende. Conferma solo se lo vedi acceso."
-        case "truedepth": return "I puntini bianchi sono il volto visto dal sensore TrueDepth, non dalla fotocamera. Gira la testa: devono girare con te."
+        case "truedepth": return "In alto a destra vedi la fotocamera, come in una videochiamata. Al centro i puntini bianchi sono il volto TrueDepth: girano con la testa."
         case "lidar": return "La vista a infrarossi resta aperta. Avvicina la mano: solo il vicino diventa più scuro."
         case "proximity": return "Copri il sensore in alto, vicino alla capsula."
-        case "light": return "Copri e scopri l'obiettivo dietro. La barra deve muoversi. iOS non dà il numero di lux."
+        case "light": return "È il sensore davanti, quello della luminosità automatica. Coprilo in alto, vicino alla capsula: lo schermo deve scurirsi."
         case "accelerometer": return "Inclina il telefono verso i quattro bordi, come la pallina."
-        case "gyroscope": return "Tienilo fermo, poi ruotalo di lato, avanti e intorno a te."
-        case "compass": return "Tienilo in piano e giralo finché l'anello si riempie."
+        case "gyroscope": return "Tienilo fermo, poi inclinalo di lato, avanti e giralo. I tre assi devono muoversi."
+        case "compass": return "Tienilo in piano. Il numero è la direzione della parte alta. Gira finché i punti si accendono."
         case "gps": return "Consente la posizione precisa. Si apre una mappa con il punto reale: confermi tu quando è quello giusto."
         case "bluetooth": return "Resta sulla schermata. Si vede se il Bluetooth è acceso. Se è spento, accendilo e riprova."
         case "nfc": return "Premi Apri lettore tag. Si apre la finestra di Apple: tieni la scheda ferma sul retro, in alto."
@@ -154,8 +154,10 @@ private struct DemoScene: View {
                 faceDots
             case "lidar":
                 depthWash
-            case "accelerometer", "gyroscope":
+            case "accelerometer":
                 tiltBall
+            case "gyroscope":
+                gyroDemo
             case "compass":
                 compassDemo
             case "gps":
@@ -172,8 +174,10 @@ private struct DemoScene: View {
                 earbuds
             case "memory", "identity":
                 readout
-            case "force", "stylus":
-                unavailable
+            case "force":
+                forceDemo
+            case "stylus":
+                pencilDemo
             default:
                 readout
             }
@@ -322,7 +326,7 @@ private struct DemoScene: View {
     }
 
     private var faceDots: some View {
-        ZStack {
+        ZStack(alignment: .topTrailing) {
             Color.black
             ForEach(0..<18, id: \.self) { index in
                 let angle = Double(index) / 18 * .pi * 2
@@ -331,6 +335,12 @@ private struct DemoScene: View {
                     .frame(width: 4, height: 4)
                     .offset(x: CGFloat(cos(angle) * (28 + loop * 6)), y: CGFloat(sin(angle) * (36 + loop * 4)) - 8)
             }
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(white: 0.22))
+                .frame(width: 46, height: 62)
+                .overlay(Circle().fill(cyan.opacity(0.8)).frame(width: 16, height: 16))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(.white, lineWidth: 1.5))
+                .padding(8)
         }
     }
 
@@ -353,19 +363,41 @@ private struct DemoScene: View {
             .offset(x: CGFloat(cos(angle) * 42), y: CGFloat(sin(angle) * 70))
     }
 
-    private var compassDemo: some View {
-        ZStack {
-            ForEach(0..<8, id: \.self) { mark in
-                Capsule()
-                    .fill(Double(mark) / 8 < loop ? cyan : Color.white.opacity(0.2))
-                    .frame(width: 6, height: 14)
-                    .offset(y: -78)
-                    .rotationEffect(.degrees(Double(mark) * 45))
+    private var gyroDemo: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .stroke(cyan, lineWidth: 2)
+            .frame(width: 48, height: 82)
+            .overlay(alignment: .top) {
+                Capsule().fill(Color.white.opacity(0.8)).frame(width: 18, height: 4).padding(.top, 8)
             }
-            Text("↑")
-                .font(.title.weight(.semibold))
+            .rotation3DEffect(.degrees(sin(loop * .pi * 2) * 32), axis: (x: 1, y: 0, z: 0))
+            .rotation3DEffect(.degrees(cos(loop * .pi * 2) * 24), axis: (x: 0, y: 1, z: 0))
+    }
+
+    private var compassDemo: some View {
+        let turn = -loop * 360
+        return ZStack {
+            Circle().stroke(Color.white.opacity(0.28), lineWidth: 2).frame(width: 150, height: 150)
+            ZStack {
+                ForEach(0..<12, id: \.self) { tick in
+                    let major = tick % 3 == 0
+                    Capsule()
+                        .fill(Color.white.opacity(major ? 0.9 : 0.35))
+                        .frame(width: major ? 2 : 1, height: major ? 12 : 7)
+                        .offset(y: -68)
+                        .rotationEffect(.degrees(Double(tick) * 30))
+                }
+                Text("N")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Color(red: 0.86, green: 0.28, blue: 0.30))
+                    .offset(y: -52)
+            }
+            .rotationEffect(.degrees(turn))
+            Capsule().fill(cyan).frame(width: 4, height: 12).offset(y: -78)
+            Text(String(format: "%03.0f°", loop * 359))
+                .font(.title3.weight(.semibold))
+                .monospacedDigit()
                 .foregroundStyle(.white)
-                .rotationEffect(.degrees(loop * 360))
         }
     }
 
@@ -453,14 +485,18 @@ private struct DemoScene: View {
         }
     }
 
-    private var unavailable: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "minus.circle")
-                .font(.system(size: 36))
-                .foregroundStyle(.white.opacity(0.45))
-            Text("Non disponibile")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(ink)
+    private var forceDemo: some View {
+        Circle()
+            .stroke(cyan, lineWidth: 3)
+            .frame(width: 70 + CGFloat(loop) * 46, height: 70 + CGFloat(loop) * 46)
+    }
+
+    private var pencilDemo: some View {
+        Path { path in
+            path.move(to: CGPoint(x: 36, y: 118))
+            path.addLine(to: CGPoint(x: 36 + 130 * loop, y: 118 - 74 * loop))
         }
+        .stroke(cyan, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+        .frame(width: 180, height: 160)
     }
 }
