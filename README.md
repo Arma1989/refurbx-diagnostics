@@ -1,6 +1,8 @@
 # RefurbX Diagnostica per iPhone
 
-App nativa dei test, versione 1.0.17 (build 18). Sull'iPhone il nome è **RefurbX Diagnostica**. Team ID `L9F47LJC86`, bundle `eu.refurbx.diagnostics`.
+App nativa dei test, versione 1.0.18 (build 19). Sull'iPhone il nome è **RefurbX Diagnostica**. Team ID `L9F47LJC86`, bundle `eu.refurbx.diagnostics`.
+
+A fine diagnosi, nella scheda, incolla il link del banco e premi **Invia al banco**. Codemagic carica l'app su TestFlight senza inviarla ogni volta alla revisione beta: quel limite di Apple si era già esaurito. I tester interni la installano subito. La revisione per i tester esterni si fa a mano, una volta, da App Store Connect.
 
 Il permesso NFC è `TAG`. Se la firma si ferma perché il profilo non lo contiene, su developer.apple.com salva di nuovo NFC Tag Reading per `eu.refurbx.diagnostics` e rilancia la build una volta.
 
