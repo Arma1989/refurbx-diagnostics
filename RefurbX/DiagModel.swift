@@ -2,6 +2,7 @@ import ARKit
 import AudioToolbox
 import AVFoundation
 import CoreLocation
+import MediaPlayer
 import SwiftUI
 import UIKit
 
@@ -888,7 +889,6 @@ final class DiagModel: ObservableObject {
         keyOk = false
         volumeArmed = true
         volumePrevious = session.outputVolume
-        let id = up ? "volume_up" : "volume_down"
         if up && volumePrevious > 0.95 {
             hint = "Il volume è già al massimo. Premi volume giù una volta, poi di nuovo volume su. Compare la spunta appena il tasto risponde."
         } else if !up && volumePrevious < 0.05 {
@@ -933,7 +933,6 @@ final class DiagModel: ObservableObject {
     private func mountVolumeHost() {
         volumeHost?.removeFromSuperview()
         let host = MPVolumeView(frame: CGRect(x: 0, y: 0, width: 180, height: 32))
-        host.showsRouteButton = false
         host.isHidden = false
         host.alpha = 0.02
         let window = UIApplication.shared.connectedScenes

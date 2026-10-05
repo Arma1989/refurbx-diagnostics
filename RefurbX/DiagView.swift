@@ -1242,7 +1242,6 @@ struct NfcTap: UIViewRepresentable {
 private struct VolumeCatcher: UIViewRepresentable {
     func makeUIView(context: Context) -> MPVolumeView {
         let view = MPVolumeView(frame: CGRect(x: 0, y: 0, width: 200, height: 36))
-        view.showsRouteButton = false
         view.alpha = 0.02
         return view
     }
