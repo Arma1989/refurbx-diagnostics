@@ -1,27 +1,20 @@
 import SwiftUI
 
-private let navy = Color(red: 0.04, green: 0.06, blue: 0.16)
-private let cyan = Color(red: 0.48, green: 0.84, blue: 1)
-private let ink = Color.white.opacity(0.78)
+private let cyan = Look.cyan
+private let ink = Look.ink
 
 struct GuideScreen: View {
     @ObservedObject var model: DiagModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ProgressView(value: Double(model.index + 1), total: Double(max(Catalog.rows.count, 1)))
-                .tint(cyan)
-            Text("\(Catalog.group(model.currentId)) · \(model.index + 1) / \(Catalog.rows.count)")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(cyan)
-            Text(Catalog.title(model.currentId))
-                .font(.system(size: 34, weight: .semibold))
-                .foregroundStyle(.white)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(GuideCopy.line(model.currentId))
-                .font(.body)
-                .foregroundStyle(ink)
-                .fixedSize(horizontal: false, vertical: true)
+            StepHeader(
+                index: model.index,
+                total: Catalog.rows.count,
+                group: Catalog.group(model.currentId),
+                title: Catalog.title(model.currentId),
+                message: GuideCopy.line(model.currentId)
+            )
             Spacer(minLength: 8)
             DemoReel(testId: model.currentId)
                 .frame(maxWidth: .infinity)
@@ -30,21 +23,10 @@ struct GuideScreen: View {
         .padding(.horizontal, 22)
         .padding(.top, 16)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 8) {
-                Button(action: { model.beginCurrent() }) {
-                    Text("Inizia").frame(maxWidth: .infinity).padding(.vertical, 8)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(cyan)
-                .foregroundStyle(navy)
-                Button("Salta", action: { model.skipCurrent() })
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .foregroundStyle(.white.opacity(0.75))
+            ActionBar {
+                BenchButton(title: "Inizia") { model.beginCurrent() }
+                BenchButton(title: "Salta", kind: .secondary) { model.skipCurrent() }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
-            .background(navy)
         }
     }
 }
@@ -111,21 +93,24 @@ private struct PhoneChrome<Content: View>: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 36, style: .continuous)
-                .fill(Color(red: 0.07, green: 0.09, blue: 0.18))
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
+            RoundedRectangle(cornerRadius: 40, style: .continuous)
+                .fill(Color(red: 0.07, green: 0.09, blue: 0.16))
+            RoundedRectangle(cornerRadius: 32, style: .continuous)
                 .fill(Color.white.opacity(0.03))
-                .padding(8)
+                .padding(7)
             content()
-            RoundedRectangle(cornerRadius: 36, style: .continuous)
-                .stroke(Color.white.opacity(0.38), lineWidth: 3)
-            Capsule()
-                .fill(Color.white.opacity(0.55))
-                .frame(width: 54, height: 6)
-                .offset(y: -132)
+            RoundedRectangle(cornerRadius: 40, style: .continuous)
+                .stroke(Color.white.opacity(0.42), lineWidth: 3)
         }
-        .frame(width: 168, height: 312)
-        .shadow(color: cyan.opacity(0.18), radius: 24, y: 10)
+        .aspectRatio(188.0 / 360.0, contentMode: .fit)
+        .frame(maxWidth: 188, maxHeight: 340)
+        .overlay(alignment: .top) {
+            Capsule()
+                .fill(Color.black.opacity(0.88))
+                .frame(width: 72, height: 22)
+                .padding(.top, 16)
+        }
+        .shadow(color: cyan.opacity(0.22), radius: 28, y: 12)
     }
 }
 

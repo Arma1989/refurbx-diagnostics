@@ -1,7 +1,7 @@
 import SwiftUI
 
-private let navy = Color(red: 0.04, green: 0.06, blue: 0.16)
-private let cyan = Color(red: 0.48, green: 0.84, blue: 1)
+private let navy = Look.navy
+private let cyan = Look.cyan
 
 struct DiagView: View {
     @StateObject private var model = DiagModel()
@@ -9,7 +9,7 @@ struct DiagView: View {
 
     var body: some View {
         ZStack {
-            navy.ignoresSafeArea()
+            Look.wash()
             switch model.phase {
             case "report":
                 ReportScreen(model: model)
@@ -47,31 +47,41 @@ private struct IntroScreen: View {
     let start: () -> Void
     let resume: () -> Void
 
+    private let groups = ["Sistema", "Schermo", "Audio", "Foto", "Sensori", "Tasti", "Energia"]
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("RefurbX").font(.headline).foregroundStyle(cyan)
-            Text("Diagnostics").font(.largeTitle.weight(.semibold)).foregroundStyle(.white)
-            Text("I test girano su questo iPhone, uno dopo l'altro. Quello che il modello non ha resta non disponibile e non abbassa il grado. Su ogni prova puoi saltare.")
-                .foregroundStyle(.white.opacity(0.72))
-            Text("Schermo, touch, audio, fotocamere, sensori, tasti e ricarica. Alla fine invii la scheda.")
-                .foregroundStyle(.white.opacity(0.72))
+        VStack(alignment: .leading, spacing: 18) {
+            Text("REFURBX")
+                .font(.system(size: 13, weight: .semibold))
+                .tracking(1.4)
+                .foregroundStyle(cyan)
+            Text("Diagnosi")
+                .font(.system(size: 40, weight: .semibold))
+                .foregroundStyle(.white)
+            Text("\(Catalog.rows.count) prove su questo iPhone, una dopo l'altra. Quello che il modello non ha non abbassa il grado.")
+                .font(.system(size: 17))
+                .foregroundStyle(Look.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], alignment: .leading, spacing: 8) {
+                ForEach(groups, id: \.self) { group in
+                    Text(group)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Look.card, in: Capsule())
+                        .overlay(Capsule().stroke(Look.line, lineWidth: 1))
+                }
+            }
             Spacer()
             if canResume {
-                Button(action: resume) {
-                    Text("Riprendi la scheda").frame(maxWidth: .infinity).padding(.vertical, 8)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(cyan)
-                .foregroundStyle(navy)
+                BenchButton(title: "Riprendi la scheda", kind: .secondary, action: resume)
             }
-            Button(action: start) {
-                Text(canResume ? "Nuova diagnosi" : "Inizia i test").frame(maxWidth: .infinity).padding(.vertical, 8)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(canResume ? .white.opacity(0.16) : cyan)
-            .foregroundStyle(canResume ? .white : navy)
+            BenchButton(title: canResume ? "Nuova diagnosi" : "Inizia i test", action: start)
         }
-        .padding(24)
+        .padding(.horizontal, 22)
+        .padding(.top, 28)
+        .padding(.bottom, 12)
     }
 }
 
@@ -79,41 +89,31 @@ private struct RunScreen: View {
     @ObservedObject var model: DiagModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ProgressView(value: Double(model.index + 1), total: Double(max(Catalog.rows.count, 1)))
-                .tint(cyan)
-            Text("\(Catalog.group(model.currentId)) · \(model.index + 1) / \(Catalog.rows.count)")
-                .font(.footnote)
-                .foregroundStyle(.white.opacity(0.6))
-            Text(Catalog.title(model.currentId))
-                .font(.largeTitle.weight(.semibold))
-                .foregroundStyle(.white)
-            if !model.hint.isEmpty {
-                Text(model.hint).foregroundStyle(.white.opacity(0.72))
-            }
+        VStack(alignment: .leading, spacing: 14) {
+            StepHeader(
+                index: model.index,
+                total: Catalog.rows.count,
+                group: Catalog.group(model.currentId),
+                title: Catalog.title(model.currentId),
+                message: model.hint
+            )
             if !model.detail.isEmpty {
-                Text(model.detail).foregroundStyle(cyan)
+                Text(model.detail)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(cyan)
             }
             stage
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
+        .padding(.horizontal, 22)
+        .padding(.top, 16)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !model.actions.isEmpty {
-                VStack(spacing: 8) {
+                ActionBar {
                     ForEach(model.actions) { act in
-                        Button(act.label) { model.onAction(act) }
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                            .buttonStyle(.borderedProminent)
-                            .tint(buttonTint(act))
-                            .foregroundStyle(buttonInk(act))
+                        BenchButton(title: act.label, kind: buttonKind(act)) { model.onAction(act) }
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
-                .padding(.bottom, 8)
-                .background(navy)
             }
         }
     }
@@ -183,20 +183,19 @@ private struct RunScreen: View {
         }
     }
 
-    private func buttonTint(_ act: Act) -> Color {
+    private func buttonKind(_ act: Act) -> BenchButton.Kind {
         switch act.status {
-        case "pass", "mic-ok", "camera-pass", "truedepth-retry": return cyan
-        case "fail", "mic-bad": return Color(red: 0.75, green: 0.22, blue: 0.24)
-        default: return Color.white.opacity(0.16)
+        case "pass", "mic-ok", "camera-pass", "truedepth-retry": return .primary
+        case "fail", "mic-bad": return .danger
+        default: return .secondary
         }
     }
+}
 
-    private func buttonInk(_ act: Act) -> Color {
-        switch act.status {
-        case "pass", "mic-ok", "camera-pass", "truedepth-retry": return navy
-        default: return .white
-        }
-    }
+private struct ReportSection: Identifiable {
+    let title: String
+    let rows: [Catalog.Row]
+    var id: String { title }
 }
 
 private struct ReportScreen: View {
@@ -205,45 +204,111 @@ private struct ReportScreen: View {
     var body: some View {
         let mark = gradeOf(model.outcomes)
         ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Scheda").foregroundStyle(cyan)
-                Text("Grado \(mark.letter)").font(.system(size: 56, weight: .semibold)).foregroundStyle(.white)
-                Text("\(mark.label) · \(mark.score)/100").foregroundStyle(.white.opacity(0.72))
-                GradeRow(title: "Vetro", value: model.lookGlass, set: { model.gradeGlass($0) })
-                GradeRow(title: "Retro", value: model.lookBack, set: { model.gradeBack($0) })
-                GradeRow(title: "Scocca", value: model.lookBody, set: { model.gradeBody($0) })
-                Toggle("Cavo in dotazione", isOn: Binding(get: { model.withCable }, set: { model.setCable($0) }))
-                    .tint(cyan)
-                    .foregroundStyle(.white)
-                Toggle("Scatola", isOn: Binding(get: { model.withBox }, set: { model.setBox($0) }))
-                    .tint(cyan)
-                    .foregroundStyle(.white)
-                ForEach(Catalog.rows, id: \.id) { row in
-                    let item = model.outcomes.first { $0.id == row.id }
-                    Text("\(row.title) · \(statusIt(item?.status ?? "skip"))")
-                        .foregroundStyle(color(item?.status ?? "skip"))
-                    if let note = item?.note, !note.isEmpty {
-                        Text(note).font(.footnote).foregroundStyle(.white.opacity(0.65))
+            VStack(alignment: .leading, spacing: 16) {
+                Text("SCHEDA")
+                    .font(.system(size: 13, weight: .semibold))
+                    .tracking(1.2)
+                    .foregroundStyle(cyan)
+                BenchCard {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Grado")
+                            .font(.system(size: 13, weight: .semibold))
+                            .tracking(0.6)
+                            .foregroundStyle(Look.mute)
+                        Text(mark.letter)
+                            .font(.system(size: 72, weight: .semibold))
+                            .foregroundStyle(.white)
+                        Text("\(mark.label) · \(mark.score)/100")
+                            .font(.system(size: 17))
+                            .foregroundStyle(Look.ink)
+                    }
+                }
+                BenchCard {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("ASPETTO")
+                            .font(.system(size: 13, weight: .semibold))
+                            .tracking(0.8)
+                            .foregroundStyle(cyan)
+                        GradeRow(title: "Vetro", value: model.lookGlass, set: { model.gradeGlass($0) })
+                        GradeRow(title: "Retro", value: model.lookBack, set: { model.gradeBack($0) })
+                        GradeRow(title: "Scocca", value: model.lookBody, set: { model.gradeBody($0) })
+                        Toggle("Cavo in dotazione", isOn: Binding(get: { model.withCable }, set: { model.setCable($0) }))
+                            .tint(cyan)
+                            .foregroundStyle(.white)
+                        Toggle("Scatola", isOn: Binding(get: { model.withBox }, set: { model.setBox($0) }))
+                            .tint(cyan)
+                            .foregroundStyle(.white)
+                    }
+                }
+                ForEach(grouped) { section in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(section.title.uppercased())
+                            .font(.system(size: 13, weight: .semibold))
+                            .tracking(0.8)
+                            .foregroundStyle(cyan)
+                            .padding(.top, 6)
+                        BenchCard {
+                            VStack(alignment: .leading, spacing: 0) {
+                                ForEach(Array(section.rows.enumerated()), id: \.element.id) { offset, row in
+                                    let item = model.outcomes.first { $0.id == row.id }
+                                    resultRow(row, item: item)
+                                    if offset < section.rows.count - 1 {
+                                        Rectangle().fill(Look.line).frame(height: 1)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 ShareLink(item: model.shareText()) {
-                    Text("Invia scheda").frame(maxWidth: .infinity).padding(.vertical, 8)
+                    Text("Invia scheda")
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(maxWidth: .infinity, minHeight: 54)
+                        .foregroundStyle(navy)
+                        .background(cyan, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(cyan)
-                .padding(.top, 12)
-                Button("Nuova diagnosi") { model.restart() }
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .foregroundStyle(.white.opacity(0.8))
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+                BenchButton(title: "Nuova diagnosi", kind: .secondary) { model.restart() }
             }
-            .padding(20)
+            .padding(.horizontal, 22)
+            .padding(.vertical, 20)
         }
+    }
+
+    private var grouped: [ReportSection] {
+        var order: [String] = []
+        var buckets: [String: [Catalog.Row]] = [:]
+        for row in Catalog.rows {
+            if buckets[row.group] == nil { order.append(row.group) }
+            buckets[row.group, default: []].append(row)
+        }
+        return order.map { ReportSection(title: $0, rows: buckets[$0] ?? []) }
+    }
+
+    private func resultRow(_ row: Catalog.Row, item: Outcome?) -> some View {
+        let status = item?.status ?? "skip"
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(row.title).foregroundStyle(.white)
+                Spacer(minLength: 12)
+                Text(statusIt(status))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(color(status))
+            }
+            if let note = item?.note, !note.isEmpty {
+                Text(note)
+                    .font(.footnote)
+                    .foregroundStyle(Look.mute)
+            }
+        }
+        .padding(.vertical, 10)
     }
 
     private func color(_ status: String) -> Color {
         switch status {
-        case "pass": return .white
-        case "fail": return Color(red: 1, green: 0.45, blue: 0.42)
+        case "pass": return Look.pass
+        case "fail": return Look.fail
         default: return .white.opacity(0.55)
         }
     }
@@ -295,13 +360,20 @@ private struct DisplayPane: View {
                     .padding(.trailing, 16)
             }
         } else {
-            VStack(spacing: 16) {
-                Text("Lo schermo è uniforme, senza pixel spenti, macchie o linee?").font(.title2).foregroundStyle(.white)
-                Button("Schermo ok", action: onPass).buttonStyle(.borderedProminent).tint(cyan)
-                Button("Vedo difetti", action: onFail).foregroundStyle(.white)
-                Button("Salta", action: onSkip).foregroundStyle(.white.opacity(0.7))
+            VStack(alignment: .leading, spacing: 16) {
+                Text("DISPLAY")
+                    .font(.system(size: 13, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundStyle(cyan)
+                Text("Lo schermo è uniforme, senza pixel spenti, macchie o linee?")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(.white)
+                Spacer()
+                BenchButton(title: "Schermo ok", action: onPass)
+                BenchButton(title: "Vedo difetti", kind: .danger, action: onFail)
+                BenchButton(title: "Salta", kind: .secondary, action: onSkip)
             }
-            .padding(24)
+            .padding(22)
         }
     }
 }
@@ -392,7 +464,8 @@ private struct MemoryBoard: View {
         }
         .padding(.horizontal, 16)
         .frame(minHeight: 64)
-        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
+        .background(Look.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Look.line, lineWidth: 1))
     }
 }
 
@@ -410,7 +483,7 @@ private struct GpsBoard: View {
                 .minimumScaleFactor(0.5)
             Text("Precisione reale, senza mappa.")
                 .font(.footnote)
-                .foregroundStyle(.white.opacity(0.65))
+                .foregroundStyle(Look.mute)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -550,14 +623,18 @@ private struct PhoneMap: View {
     var body: some View {
         VStack(spacing: 18) {
             ZStack {
-                RoundedRectangle(cornerRadius: 28)
-                    .stroke(Color.white.opacity(0.4), lineWidth: 3)
-                    .background(RoundedRectangle(cornerRadius: 28).fill(Color.white.opacity(0.04)))
-                    .frame(width: 148, height: 248)
+                RoundedRectangle(cornerRadius: 36, style: .continuous)
+                    .stroke(Color.white.opacity(0.38), lineWidth: 3)
+                    .background(RoundedRectangle(cornerRadius: 36, style: .continuous).fill(Color.white.opacity(0.04)))
+                    .frame(width: 168, height: 300)
+                Capsule()
+                    .fill(Color.black.opacity(0.85))
+                    .frame(width: 62, height: 18)
+                    .offset(y: -118)
                 Capsule()
                     .fill(spot == "ear" || spot == "front" ? cyan : Color.white.opacity(0.28))
                     .frame(width: 48, height: 8)
-                    .offset(y: -104)
+                    .offset(y: -92)
                 Circle()
                     .fill(spot == "back" ? cyan : Color.white.opacity(0.28))
                     .frame(width: 16, height: 16)
@@ -565,14 +642,14 @@ private struct PhoneMap: View {
                 Capsule()
                     .fill(spot == "speaker" || spot == "bottom" ? cyan : Color.white.opacity(0.28))
                     .frame(width: 56, height: 8)
-                    .offset(y: 104)
+                    .offset(y: 128)
                 Text(caption)
                     .font(.footnote.weight(.semibold))
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.white)
                     .frame(width: 110)
             }
-            .frame(width: 148, height: 248)
+            .frame(width: 168, height: 300)
             if spot == "bottom" || spot == "front" || spot == "back" {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Livello").font(.footnote).foregroundStyle(.white.opacity(0.7))
@@ -679,8 +756,9 @@ private struct GyroList: View {
             Text(on ? "Fatto" : "–").foregroundStyle(on ? cyan : .white.opacity(0.45))
         }
         .padding(.horizontal, 16)
-        .frame(minHeight: 48)
-        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
+        .frame(minHeight: 52)
+        .background(Look.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Look.line, lineWidth: 1))
     }
 }
 
