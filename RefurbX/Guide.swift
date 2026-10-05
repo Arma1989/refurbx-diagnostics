@@ -24,7 +24,13 @@ struct GuideScreen: View {
         .padding(.top, 16)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             ActionBar {
-                BenchButton(title: model.currentId == "nfc" ? "Apri lettore tag" : "Inizia") { model.beginCurrent() }
+                if model.currentId == "nfc" {
+                    NfcTap(title: "Apri lettore tag", probe: model.tagProbe)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 54)
+                } else {
+                    BenchButton(title: "Inizia") { model.beginCurrent() }
+                }
                 BenchButton(title: "Salta", kind: .secondary) { model.skipCurrent() }
             }
         }
@@ -55,7 +61,7 @@ private enum GuideCopy {
         case "truedepth": return "In alto a destra vedi la fotocamera, come in una videochiamata. Al centro i puntini bianchi sono il volto TrueDepth: girano con la testa."
         case "lidar": return "La vista a infrarossi resta aperta. Avvicina la mano: solo il vicino diventa più scuro."
         case "proximity": return "Copri il sensore in alto, vicino alla capsula."
-        case "light": return "È il sensore davanti, quello della luminosità automatica. Coprilo in alto, vicino alla capsula: lo schermo deve scurirsi."
+        case "light": return "Metti una luce sul sensore davanti, in alto, poi toglila. La percentuale deve scendere subito."
         case "accelerometer": return "Inclina il telefono verso i quattro bordi, come la pallina."
         case "gyroscope": return "Tienilo fermo, poi inclinalo di lato, avanti e giralo. I tre assi devono muoversi."
         case "compass": return "Tienilo in piano. Il numero è la direzione della parte alta. Gira finché i punti si accendono."

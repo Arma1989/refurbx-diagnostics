@@ -1002,7 +1002,7 @@ final class FaceTrackProbe: NSObject, ARSessionDelegate {
                     let vertex = vertices[index]
                     let world = face.transform * simd_float4(vertex.x, vertex.y, vertex.z, 1)
                     let projected = camera.projectPoint(simd_float3(world.x, world.y, world.z), orientation: .portrait, viewportSize: viewport)
-                    let x = 1 - (projected.x / viewport.width)
+                    let x = projected.x / viewport.width
                     let y = projected.y / viewport.height
                     if x < -0.15 || x > 1.15 || y < -0.15 || y > 1.15 { continue }
                     points.append(CGPoint(x: min(0.98, max(0.02, x)), y: min(0.98, max(0.02, y))))
@@ -1020,9 +1020,7 @@ final class FaceTrackProbe: NSObject, ARSessionDelegate {
         guard now - lastShot > 0.12 else { return nil }
         lastShot = now
         let source = CIImage(cvPixelBuffer: buffer)
-        let oriented = source
-            .oriented(CGImagePropertyOrientation.right)
-            .oriented(CGImagePropertyOrientation.upMirrored)
+        let oriented = source.oriented(CGImagePropertyOrientation.right)
         let longest = max(oriented.extent.width, oriented.extent.height)
         let scale = min(1, 420 / max(longest, 1))
         let fitted = oriented.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
@@ -1260,51 +1258,60 @@ enum DiskProbe {
 final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
     private var session: NFCTagReaderSession?
     private var reported = false
+    private var connecting = false
     private var generation = 0
     private let lock = NSLock()
     var onResult: ((String, String) -> Void)?
     var onActive: (() -> Void)?
+    var onOpened: ((Bool) -> Void)?
 
-    @discardableResult
-    func beginNow() -> Bool {
-        if !Thread.isMainThread {
-            DispatchQueue.main.sync { _ = self.beginSession() }
-            return session != nil
+    func attach(_ button: UIButton) {
+        button.removeTarget(self, action: #selector(beginFromTap), for: .touchUpInside)
+        button.addTarget(self, action: #selector(beginFromTap), for: .touchUpInside)
+    }
+
+    @objc func beginFromTap() {
+        lock.lock()
+        if session != nil {
+            lock.unlock()
+            return
         }
-        return beginSession()
-    }
-
-    func stop() {
-        generation += 1
-        onResult = nil
-        onActive = nil
-        let current = session
-        session = nil
-        current?.invalidate()
-    }
-
-    @discardableResult
-    private func beginSession() -> Bool {
         generation += 1
         let token = generation
-        lock.lock()
         reported = false
+        connecting = false
         lock.unlock()
-        let previous = session
-        session = nil
-        previous?.invalidate()
         guard NFCTagReaderSession.readingAvailable else {
             finish("absent", "Questo iPhone non legge i tag NFC", token: token)
-            return false
+            return
         }
         guard let session = NFCTagReaderSession(pollingOption: [.iso14443, .iso15693, .iso18092], delegate: self, queue: nil) else {
             finish("absent", "Lettura NFC non disponibile", token: token)
-            return false
+            return
         }
         session.alertMessage = "Tieni la scheda ferma sul retro, in alto."
+        lock.lock()
+        if self.session != nil || token != generation {
+            lock.unlock()
+            return
+        }
         self.session = session
+        lock.unlock()
         session.begin()
-        return true
+        DispatchQueue.main.async { self.onOpened?(true) }
+    }
+
+    func stop() {
+        lock.lock()
+        generation += 1
+        connecting = false
+        let current = session
+        session = nil
+        lock.unlock()
+        onResult = nil
+        onActive = nil
+        onOpened = nil
+        current?.invalidate()
     }
 
     func tagReaderSessionDidBecomeActive(_ session: NFCTagReaderSession) {
@@ -1315,32 +1322,61 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
 
     func tagReaderSession(_ session: NFCTagReaderSession, didDetect tags: [NFCTag]) {
         guard session === self.session, let tag = tags.first else { return }
-        session.alertMessage = "NFC ok"
-        finish("pass", "Tag \(Self.kind(tag)) visto")
-        session.invalidate()
+        lock.lock()
+        if connecting {
+            lock.unlock()
+            return
+        }
+        connecting = true
+        lock.unlock()
+        session.connect(to: tag) { [weak self] error in
+            guard let self else { return }
+            if error != nil {
+                self.lock.lock()
+                self.connecting = false
+                self.lock.unlock()
+                guard session === self.session else { return }
+                session.alertMessage = "Tieni la scheda ferma sul retro, in alto."
+                session.restartPolling()
+                return
+            }
+            guard session === self.session else { return }
+            let kind = Self.kind(tag)
+            session.alertMessage = "NFC ok"
+            self.finish("pass", "Tag \(kind) letto")
+            session.invalidate()
+        }
     }
 
     func tagReaderSession(_ session: NFCTagReaderSession, didInvalidateWithError error: Error) {
-        guard session === self.session else { return }
+        lock.lock()
+        guard session === self.session else {
+            lock.unlock()
+            return
+        }
+        let token = generation
+        self.session = nil
+        connecting = false
+        lock.unlock()
         let code = (error as? NFCReaderError)?.code
         if code == .readerSessionInvalidationErrorFirstNDEFTagRead {
-            finish("pass", "Tag NFC letto")
+            finish("pass", "Tag NFC letto", token: token)
             return
         }
         if code == .readerSessionInvalidationErrorUserCanceled {
-            finish("cancel", "")
+            finish("cancel", "", token: token)
             return
         }
         if code == .readerSessionInvalidationErrorSessionTimeout {
-            finish("closed", "Tempo scaduto. Premi Apri lettore tag e tieni la scheda ferma sul retro, in alto.")
+            finish("closed", "Tempo scaduto. Premi Apri lettore tag e tieni la scheda ferma sul retro, in alto.", token: token)
             return
         }
         if code == .readerSessionInvalidationErrorSystemIsBusy {
-            finish("closed", "NFC occupato. Chiudi le altre finestre e premi Apri lettore tag.")
+            finish("closed", "NFC occupato. Chiudi le altre finestre e premi Apri lettore tag.", token: token)
             return
         }
         let text = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        finish("closed", text.isEmpty ? "La finestra NFC si è chiusa. Premi Apri lettore tag." : text)
+        finish("closed", text.isEmpty ? "La finestra NFC si è chiusa. Premi Apri lettore tag." : text, token: token)
     }
 
     private static func kind(_ tag: NFCTag) -> String {
@@ -1354,16 +1390,27 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
     }
 
     private func finish(_ status: String, _ note: String, token: Int? = nil) {
-        if let token, token != generation { return }
         lock.lock()
+        if let token, token != generation {
+            lock.unlock()
+            return
+        }
         if reported {
             lock.unlock()
             return
         }
         reported = true
+        let seen = generation
         lock.unlock()
         let callback = onResult
-        DispatchQueue.main.async { callback?(status, note) }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.lock.lock()
+            let current = self.generation
+            self.lock.unlock()
+            if seen != current { return }
+            callback?(status, note)
+        }
     }
 }
 

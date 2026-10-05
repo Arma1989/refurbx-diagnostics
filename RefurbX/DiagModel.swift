@@ -93,6 +93,7 @@ final class DiagModel: ObservableObject {
     private let faceTrack = FaceTrackProbe()
     private let face = FaceProbe()
     private let tags = TagProbe()
+    var tagProbe: TagProbe { tags }
     private var bestGps: CLLocation?
     private var settled = false
     private var wave = 0
@@ -106,6 +107,7 @@ final class DiagModel: ObservableObject {
     private var lightFloor = 0.0
     private var lightCeil = 0.0
     private var lightBase = 0.0
+    private var lightPeak = 0.0
     private var lightSawDark = false
     private var lightSawBright = false
     private var playback: AVAudioPlayer?
@@ -124,7 +126,6 @@ final class DiagModel: ObservableObject {
     private var forceSoft = false
     private var forceHard = false
     private var openedLenses: [String] = []
-    private var nfcAttempt = 0
 
     func begin(group: String?) {
         let chosen = HardwareFit.rows(in: group)
@@ -238,7 +239,7 @@ final class DiagModel: ObservableObject {
                 UIApplication.shared.open(url)
             }
         case "nfc-retry":
-            openNfcSheet()
+            break
         case "lidar-ok":
             guard depthLive else {
                 hint = "La mappa non è ancora arrivata. Avvicina un oggetto: deve scurirsi."
@@ -501,8 +502,12 @@ final class DiagModel: ObservableObject {
         lightFloor = 0
         lightCeil = 0
         lightBase = 0
+        lightPeak = 0
         lightSawDark = false
         lightSawBright = false
+        if row.id == "nfc" {
+            armNfc()
+        }
     }
 
     func beginCurrent() {
@@ -685,11 +690,9 @@ final class DiagModel: ObservableObject {
     }
 
     private func startNfc() {
-        hint = "Si apre il lettore tag di Apple. Tieni la scheda ferma sul retro, in alto."
-        detail = "Apro il lettore"
+        hint = "Premi Apri lettore tag. Si apre la finestra di Apple dal basso. Tieni la scheda ferma sul retro, in alto."
+        detail = "Lettore tag"
         actions = nfcActions()
-        armNfc()
-        openNfcSheet()
     }
 
     private func nfcActions() -> [Act] {
@@ -701,6 +704,13 @@ final class DiagModel: ObservableObject {
     }
 
     private func armNfc() {
+        tags.onOpened = { [weak self] _ in
+            guard let self, self.still("nfc") else { return }
+            self.phase = "run"
+            self.hint = "Si apre il lettore tag di Apple, dal basso. Tieni la scheda ferma sul retro, in alto."
+            self.detail = "Lettore tag in apertura"
+            self.actions = self.nfcActions()
+        }
         tags.onActive = { [weak self] in
             guard let self, self.still("nfc") else { return }
             self.detail = "Lettore tag aperto"
@@ -716,23 +726,13 @@ final class DiagModel: ObservableObject {
                 self.settle("nfc", "absent", note)
                 return
             }
+            self.phase = "run"
             self.hint = status == "cancel"
                 ? "Lettura chiusa. Premi Apri lettore tag e tieni la scheda ferma sul retro, in alto."
                 : (note.isEmpty ? "La finestra NFC si è chiusa prima del tag. Premi Apri lettore tag." : note)
             self.detail = "Lettore chiuso"
             self.actions = self.nfcActions()
         }
-    }
-
-    private func openNfcSheet() {
-        guard still("nfc") else { return }
-        nfcAttempt += 1
-        let opened = tags.beginNow()
-        if opened {
-            hint = "Si apre il lettore tag di Apple. Tieni la scheda ferma sul retro, in alto."
-            detail = "Lettore tag in apertura"
-        }
-        actions = nfcActions()
     }
 
     private func startSpeaker() {
@@ -1270,54 +1270,56 @@ final class DiagModel: ObservableObject {
         lightBase = 0
         lightSawDark = false
         lightSawBright = false
+        lightPeak = 0
         showCamera = false
-        let now = Double(UIScreen.main.brightness)
-        lightLevel = now
-        hint = "Attiva la luminosità automatica. Copri il sensore davanti, in alto vicino alla capsula: non la fotocamera dietro. Lo schermo deve scurirsi, poi scoprilo."
-        detail = "Luminosità schermo \(Int((now * 100).rounded()))%"
+        lightLevel = 1
+        hint = "Metti una luce sul sensore davanti, in alto vicino alla capsula, poi toglila. La percentuale deve scendere subito. Non è la fotocamera dietro."
+        detail = "Luce davanti"
         actions = [
-            Act(label: "Si è scurito", status: "pass", note: "Luminosità automatica vista coprendo il sensore davanti"),
-            Act(label: "Non reagisce", status: "fail", note: "La luminosità automatica non reagisce"),
+            Act(label: "Si è abbassata", status: "pass", note: "La luce davanti è scesa togliendo la sorgente"),
+            Act(label: "Non reagisce", status: "fail", note: "Il sensore davanti non reagisce"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
-        watch(UIScreen.brightnessDidChangeNotification) { [weak self] in
-            guard let self, self.still("light") else { return }
-            self.noteLight(Double(UIScreen.main.brightness))
-        }
-        noteLight(now)
-        pollLight()
+        camera.start(front: true, onFocus: {}, onRunning: { [weak self] in
+            self?.pollLight()
+        }, onError: { [weak self] _ in
+            self?.pollLight()
+        })
     }
 
     private func pollLight() {
-        later(0.2) {
+        later(0.05) {
             guard self.still("light") else { return }
-            self.noteLight(Double(UIScreen.main.brightness))
+            if let raw = self.camera.ambientLevel() {
+                self.noteAmbient(raw)
+            }
             guard self.still("light") else { return }
             self.pollLight()
         }
     }
 
-    private func noteLight(_ value: Double) {
-        let clamped = min(1, max(0, value))
-        lightLevel = clamped
-        detail = "Luminosità schermo \(Int((clamped * 100).rounded()))%"
-        if lightWarm == 0 {
-            lightBase = clamped
-            lightFloor = clamped
-            lightCeil = clamped
-            lightWarm = 1
+    private func noteAmbient(_ raw: Double) {
+        guard raw.isFinite, raw > 0 else { return }
+        if lightWarm < 4 {
+            lightPeak = max(lightPeak, raw)
+            lightWarm += 1
+            lightLevel = 1
+            detail = "Luce davanti 100%"
             return
         }
-        lightWarm += 1
-        lightFloor = min(lightFloor, clamped)
-        lightCeil = max(lightCeil, clamped)
-        if clamped < lightBase - 0.08 { lightSawDark = true }
-        if lightSawDark && clamped > lightFloor + 0.08 { lightSawBright = true }
-        if lightSawDark && !lightSawBright {
-            hint = "Lo schermo si è scurito. Scopri il sensore davanti: la luminosità deve risalire."
-        }
-        if lightSawDark && lightSawBright {
-            settle("light", "pass", "La luminosità automatica ha reagito coprendo e scoprendo il sensore davanti")
+        if raw > lightPeak { lightPeak = raw }
+        let shown = min(1, raw / max(lightPeak, 0.000_001))
+        lightLevel = shown
+        let percent = Int((shown * 100).rounded())
+        detail = "Luce davanti \(percent)%"
+        if shown > 0.9 { lightSawBright = true }
+        if shown < 0.45 { lightSawDark = true }
+        if lightSawBright && shown < 0.45 {
+            settle("light", "pass", "La luce davanti è scesa appena tolta")
+        } else if lightSawDark && shown > 0.9 {
+            settle("light", "pass", "La luce davanti è risalita")
+        } else if lightSawBright && shown < 0.7 {
+            hint = "La luce sta scendendo. Tieni la sorgente lontana dal sensore davanti."
         }
     }
 

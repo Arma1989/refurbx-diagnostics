@@ -185,7 +185,13 @@ private struct RunScreen: View {
             if !model.actions.isEmpty {
                 ActionBar {
                     ForEach(model.actions) { act in
-                        BenchButton(title: act.label, kind: buttonKind(act)) { model.onAction(act) }
+                        if act.status == "nfc-retry" {
+                            NfcTap(title: act.label, probe: model.tagProbe)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 54)
+                        } else {
+                            BenchButton(title: act.label, kind: buttonKind(act)) { model.onAction(act) }
+                        }
                     }
                 }
             }
@@ -351,7 +357,7 @@ final class FilmView: UIView {
             return
         }
         current = name
-        guard let url = Bundle.main.url(forResource: name, withExtension: "mp4") else { return }
+        guard let url = GradeClips.url(name) ?? Bundle.main.url(forResource: name, withExtension: "mp4") else { return }
         let player = AVQueuePlayer()
         player.isMuted = true
         looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
@@ -1084,7 +1090,7 @@ private struct LightBar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Luminosità dello schermo")
+            Text("Luce davanti")
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.7))
             GeometryReader { geo in
@@ -1097,6 +1103,27 @@ private struct LightBar: View {
             }
             .frame(height: 18)
         }
+    }
+}
+
+struct NfcTap: UIViewRepresentable {
+    let title: String
+    let probe: TagProbe
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .custom)
+        button.setTitle(title, for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+        button.setTitleColor(UIColor(red: 0.043, green: 0.059, blue: 0.145, alpha: 1), for: .normal)
+        button.backgroundColor = UIColor(red: 0.48, green: 0.84, blue: 1, alpha: 1)
+        button.layer.cornerRadius = 16
+        probe.attach(button)
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        button.setTitle(title, for: .normal)
+        probe.attach(button)
     }
 }
 
@@ -1152,8 +1179,10 @@ private struct GyroList: View {
                 let side = min(geo.size.width, geo.size.height)
                 horizon(side)
                     .frame(width: side, height: side)
+                    .clipped()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .clipped()
             HStack(spacing: 8) {
                 axis("Rollio", model.gyroRollDeg, model.gyroTilt)
                 axis("Beccheggio", model.gyroPitchDeg, model.gyroPitch)
@@ -1208,8 +1237,10 @@ private struct GyroList: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
                 .background(.black.opacity(0.4), in: Capsule())
-                .offset(y: side * 0.34)
+                .offset(y: side * 0.28)
         }
+        .frame(width: side, height: side)
+        .clipShape(Circle())
     }
 
     private func axis(_ title: String, _ degrees: Double, _ on: Bool) -> some View {
