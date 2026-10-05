@@ -1,3 +1,4 @@
+import AVKit
 import MapKit
 import SwiftUI
 
@@ -248,6 +249,36 @@ private struct RunScreen: View {
     }
 }
 
+private struct GradeFilm: View {
+    let name: String
+    @State private var player: AVQueuePlayer?
+    @State private var looper: AVPlayerLooper?
+
+    var body: some View {
+        VideoPlayer(player: player)
+            .aspectRatio(360.0 / 640.0, contentMode: .fit)
+            .frame(maxHeight: 280)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Look.line, lineWidth: 1))
+            .onAppear { start() }
+            .onChange(of: name) { _, _ in start() }
+            .onDisappear {
+                player?.pause()
+                looper = nil
+                player = nil
+            }
+    }
+
+    private func start() {
+        guard let url = Bundle.main.url(forResource: name, withExtension: "mp4") else { return }
+        let queue = AVQueuePlayer()
+        looper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(url: url))
+        player = queue
+        queue.isMuted = true
+        queue.play()
+    }
+}
+
 private struct ReportSection: Identifiable {
     let title: String
     let rows: [Catalog.Row]
@@ -258,52 +289,76 @@ private struct ReportScreen: View {
     @ObservedObject var model: DiagModel
 
     var body: some View {
-        let mark = gradeOf(model.outcomes)
+        let choice = Cosmetic.find(model.lookGrade)
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("SCHEDA")
                     .font(.system(size: 13, weight: .semibold))
                     .tracking(1.2)
                     .foregroundStyle(cyan)
-                BenchCard {
-                    HStack(alignment: .center, spacing: 18) {
-                        ZStack {
-                            Circle()
-                                .stroke(Color.white.opacity(0.12), lineWidth: 8)
-                            Circle()
-                                .trim(from: 0, to: CGFloat(mark.score) / 100)
-                                .stroke(cyan, style: StrokeStyle(lineWidth: 8, lineCap: .round))
-                                .rotationEffect(.degrees(-90))
-                            Text(mark.letter)
-                                .font(.system(size: 40, weight: .semibold))
-                                .foregroundStyle(.white)
-                        }
-                        .frame(width: 92, height: 92)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("GRADO")
-                                .font(.system(size: 13, weight: .semibold))
-                                .tracking(0.8)
-                                .foregroundStyle(cyan)
-                            Text(mark.label)
-                                .font(.system(size: 28, weight: .semibold))
-                                .foregroundStyle(.white)
-                            Text("\(mark.score) su 100")
-                                .font(.system(size: 17))
-                                .foregroundStyle(Look.ink)
-                        }
-                        Spacer(minLength: 0)
-                    }
+                if let when = model.testedAt {
+                    Text(Self.stamp.string(from: when))
+                        .font(.system(size: 15))
+                        .foregroundStyle(Look.mute)
                 }
                 BenchCard {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("ASPETTO")
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("GRADO ESTETICO")
                             .font(.system(size: 13, weight: .semibold))
                             .tracking(0.8)
                             .foregroundStyle(cyan)
-                        GradeRow(title: "Vetro", value: model.lookGlass, set: { model.gradeGlass($0) })
-                        GradeRow(title: "Retro", value: model.lookBack, set: { model.gradeBack($0) })
-                        GradeRow(title: "Scocca", value: model.lookBody, set: { model.gradeBody($0) })
-                        Toggle("Cavo in dotazione", isOn: Binding(get: { model.withCable }, set: { model.setCable($0) }))
+                        Text(choice?.id ?? "—")
+                            .font(.system(size: 64, weight: .semibold))
+                            .foregroundStyle(.white)
+                        Text(choice?.title ?? "Scegli l'aspetto del dispositivo")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(.white)
+                        Text(choice?.line ?? "Il grado della scheda è quello estetico di RefurbX: A+, A, B o C. I test funzionali restano elencati sotto.")
+                            .font(.system(size: 16))
+                            .foregroundStyle(Look.ink)
+                        Text(functionLine)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Look.mute)
+                    }
+                }
+                Text("Guarda l'esempio e scegli il grado che somiglia di più al telefono.")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Look.ink)
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                    ForEach(Cosmetic.choices, id: \.id) { item in
+                        Button(action: { model.chooseLook(item.id) }) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.id)
+                                    .font(.system(size: 28, weight: .semibold))
+                                Text(item.title)
+                                    .font(.system(size: 15, weight: .semibold))
+                                Text(item.line)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Look.ink)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .foregroundStyle(.white)
+                            .background(model.lookGrade == item.id ? cyan.opacity(0.16) : Look.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(model.lookGrade == item.id ? cyan : Look.line, lineWidth: model.lookGrade == item.id ? 2 : 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                if let choice {
+                    GradeFilm(name: choice.film)
+                    Text("Esempio \(choice.id) · \(choice.title)")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Look.mute)
+                }
+                BenchCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("IN DOTAZIONE")
+                            .font(.system(size: 13, weight: .semibold))
+                            .tracking(0.8)
+                            .foregroundStyle(cyan)
+                        Toggle("Cavo", isOn: Binding(get: { model.withCable }, set: { model.setCable($0) }))
                             .tint(cyan)
                             .foregroundStyle(.white)
                         Toggle("Scatola", isOn: Binding(get: { model.withBox }, set: { model.setBox($0) }))
@@ -363,21 +418,45 @@ private struct ReportScreen: View {
                         }
                     }
                 }
-                ShareLink(item: model.shareText()) {
-                    Text("Invia scheda")
-                        .font(.system(size: 17, weight: .semibold))
-                        .frame(maxWidth: .infinity, minHeight: 54)
-                        .foregroundStyle(navy)
-                        .background(cyan, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                Text(SheetPDF.disclaimer)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Look.mute)
+                if let file = model.sheetFile {
+                    ShareLink(item: file) {
+                        Text("Invia scheda PDF")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(maxWidth: .infinity, minHeight: 54)
+                            .foregroundStyle(navy)
+                            .background(cyan, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Text("Scegli il grado estetico per creare il PDF.")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Look.ink)
                 }
-                .buttonStyle(.plain)
-                .padding(.top, 4)
                 BenchButton(title: "Nuova diagnosi", kind: .secondary) { model.restart() }
             }
             .padding(.horizontal, 22)
             .padding(.vertical, 20)
         }
     }
+
+    private var functionLine: String {
+        let rows = model.activeRows
+        let pass = rows.filter { row in model.outcomes.first { $0.id == row.id }?.status == "pass" }.count
+        let fail = rows.filter { row in model.outcomes.first { $0.id == row.id }?.status == "fail" }.count
+        let skipped = rows.count - pass - fail
+        return "Funzioni: \(pass) conformi · \(fail) da rivedere · \(skipped) saltate o assenti"
+    }
+
+    private static let stamp: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "it_IT")
+        formatter.dateStyle = .long
+        formatter.timeStyle = .short
+        return formatter
+    }()
 
     private var grouped: [ReportSection] {
         var order: [String] = []
@@ -413,26 +492,6 @@ private struct ReportScreen: View {
         case "pass": return Look.pass
         case "fail": return Look.fail
         default: return .white.opacity(0.55)
-        }
-    }
-}
-
-private struct GradeRow: View {
-    let title: String
-    let value: Int
-    let set: (Int) -> Void
-
-    var body: some View {
-        HStack {
-            Text(title).foregroundStyle(.white)
-            Spacer()
-            ForEach(1...5, id: \.self) { mark in
-                Button("\(mark)") { set(mark) }
-                    .font(.footnote.weight(.semibold))
-                    .frame(width: 32, height: 32)
-                    .background(value == mark ? cyan : Color.white.opacity(0.12), in: Circle())
-                    .foregroundStyle(value == mark ? navy : .white)
-            }
         }
     }
 }

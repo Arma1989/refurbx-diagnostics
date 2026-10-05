@@ -115,6 +115,26 @@ enum Catalog {
     }
 }
 
+enum Cosmetic {
+    struct Choice {
+        let id: String
+        let title: String
+        let line: String
+        let film: String
+    }
+
+    static let choices: [Choice] = [
+        Choice(id: "A+", title: "Come nuovo", line: "Segni assenti. Sembra appena uscito dalla scatola.", film: "grade-aplus"),
+        Choice(id: "A", title: "Eccellente", line: "Micro-segni, visibili solo da molto vicino.", film: "grade-a"),
+        Choice(id: "B", title: "Buono", line: "Segni di uso visibili su scocca o vetro.", film: "grade-b"),
+        Choice(id: "C", title: "Vissuto", line: "Segni evidenti. Funziona, ma l'aspetto è vissuto.", film: "grade-c"),
+    ]
+
+    static func find(_ id: String) -> Choice? {
+        choices.first { $0.id == id }
+    }
+}
+
 func gradeOf(_ items: [Outcome]) -> Mark {
     var earned = 0
     var total = 0

@@ -40,9 +40,9 @@ final class DiagModel: ObservableObject {
     @Published var lenses: [AVCaptureDevice.DeviceType] = []
     @Published var lens: AVCaptureDevice.DeviceType = .builtInWideAngleCamera
     @Published var lensName = ""
-    @Published var lookGlass = 0
-    @Published var lookBack = 0
-    @Published var lookBody = 0
+    @Published var lookGrade = ""
+    @Published var testedAt: Date?
+    @Published var sheetFile: URL?
     @Published var withCable = false
     @Published var withBox = false
     @Published var forceUnit: CGFloat = 0
@@ -114,9 +114,9 @@ final class DiagModel: ObservableObject {
         UIDevice.current.isBatteryMonitoringEnabled = true
         plan = chosen.map(\.id)
         outcomes = []
-        lookGlass = 0
-        lookBack = 0
-        lookBody = 0
+        lookGrade = ""
+        testedAt = nil
+        sheetFile = nil
         withCable = false
         withBox = false
         index = 0
@@ -132,9 +132,8 @@ final class DiagModel: ObservableObject {
         }
         plan = saved.plan.isEmpty ? Catalog.rows.map(\.id) : saved.plan
         outcomes = saved.items.map { Outcome(id: $0.id, status: $0.status, note: $0.note) }
-        lookGlass = saved.glass
-        lookBack = saved.back
-        lookBody = saved.body
+        lookGrade = saved.look
+        testedAt = saved.tested
         withCable = saved.cable
         withBox = saved.box
         index = min(max(0, saved.index), max(0, plan.count - 1))
@@ -142,6 +141,7 @@ final class DiagModel: ObservableObject {
             cleanup()
             phase = "report"
             currentId = "report"
+            prepareSheet()
             return
         }
         enter()
@@ -156,16 +156,23 @@ final class DiagModel: ObservableObject {
         index = -1
         plan = []
         outcomes = []
+        lookGrade = ""
+        testedAt = nil
+        sheetFile = nil
         actions = []
         hint = ""
         detail = ""
     }
 
-    func gradeGlass(_ value: Int) { lookGlass = value; remember() }
-    func gradeBack(_ value: Int) { lookBack = value; remember() }
-    func gradeBody(_ value: Int) { lookBody = value; remember() }
-    func setCable(_ on: Bool) { withCable = on; remember() }
-    func setBox(_ on: Bool) { withBox = on; remember() }
+    func chooseLook(_ id: String) {
+        guard Cosmetic.find(id) != nil else { return }
+        lookGrade = id
+        remember()
+        prepareSheet()
+    }
+
+    func setCable(_ on: Bool) { withCable = on; remember(); prepareSheet() }
+    func setBox(_ on: Bool) { withBox = on; remember(); prepareSheet() }
 
     func onAction(_ act: Act) {
         switch act.status {
@@ -276,9 +283,11 @@ final class DiagModel: ObservableObject {
         let proceed = { [weak self] in
             guard let self else { return }
             guard self.index + 1 < self.plan.count else {
+                if self.testedAt == nil { self.testedAt = Date() }
                 self.phase = "report"
                 self.currentId = "report"
                 self.remember()
+                self.prepareSheet()
                 return
             }
             self.index += 1
@@ -299,13 +308,12 @@ final class DiagModel: ObservableObject {
     }
 
     func shareText() -> String {
-        let mark = gradeOf(outcomes)
+        let choice = Cosmetic.find(lookGrade)
         let model = Machine.identifier
         var lines = [
             "RefurbX Diagnostica",
             "\(model) · iOS \(UIDevice.current.systemVersion)",
-            "Grado \(mark.letter) · \(mark.label) · \(mark.score)/100",
-            "Vetro \(lookGlass)/5 · Retro \(lookBack)/5 · Scocca \(lookBody)/5",
+            "Grado estetico \(choice?.id ?? "—") · \(choice?.title ?? "da scegliere")",
             "Cavo \(withCable ? "sì" : "no") · Scatola \(withBox ? "sì" : "no")",
             "",
         ]
@@ -317,6 +325,27 @@ final class DiagModel: ObservableObject {
         }
         let text = lines.joined(separator: "\n")
         return text.count > 3500 ? String(text.prefix(3480)) + "…" : text
+    }
+
+    func prepareSheet() {
+        guard phase == "report", let choice = Cosmetic.find(lookGrade), let when = testedAt else {
+            sheetFile = nil
+            return
+        }
+        let rows = activeRows.map { row in
+            let item = outcomes.first { $0.id == row.id }
+            return (group: row.group, title: row.title, status: item?.status ?? "skip", note: item?.note ?? "")
+        }
+        sheetFile = SheetPDF.write(SheetFacts(
+            grade: choice.id,
+            title: choice.title,
+            line: choice.line,
+            when: when,
+            device: "\(Machine.identifier) · iOS \(UIDevice.current.systemVersion)",
+            cable: withCable,
+            box: withBox,
+            rows: rows
+        ))
     }
 
     func sendToBench() {
@@ -339,7 +368,8 @@ final class DiagModel: ObservableObject {
     private func benchPayload() -> [String: Any] {
         let scale = UIScreen.main.scale
         let screen = "\(Int(UIScreen.main.bounds.width * scale))×\(Int(UIScreen.main.bounds.height * scale))"
-        let appearance = "Vetro \(lookGlass)/5 · Retro \(lookBack)/5 · Scocca \(lookBody)/5 · Cavo \(withCable ? "sì" : "no") · Scatola \(withBox ? "sì" : "no")"
+        let choice = Cosmetic.find(lookGrade)
+        let appearance = "Grado estetico \(choice?.id ?? "—") \(choice?.title ?? "") · Cavo \(withCable ? "sì" : "no") · Scatola \(withBox ? "sì" : "no")"
         return [
             "device": [
                 "userAgent": "RefurbX Diagnostica",
@@ -1411,9 +1441,8 @@ final class DiagModel: ObservableObject {
             index: index,
             plan: plan,
             items: outcomes.map { SavedItem(id: $0.id, status: $0.status, note: $0.note) },
-            glass: lookGlass,
-            back: lookBack,
-            body: lookBody,
+            look: lookGrade,
+            tested: testedAt,
             cable: withCable,
             box: withBox
         )
@@ -1459,20 +1488,18 @@ private struct SavedRun: Codable {
     var index: Int
     var plan: [String]
     var items: [SavedItem]
-    var glass: Int
-    var back: Int
-    var body: Int
+    var look: String
+    var tested: Date?
     var cable: Bool
     var box: Bool
 
-    init(phase: String, index: Int, plan: [String], items: [SavedItem], glass: Int, back: Int, body: Int, cable: Bool, box: Bool) {
+    init(phase: String, index: Int, plan: [String], items: [SavedItem], look: String, tested: Date?, cable: Bool, box: Bool) {
         self.phase = phase
         self.index = index
         self.plan = plan
         self.items = items
-        self.glass = glass
-        self.back = back
-        self.body = body
+        self.look = look
+        self.tested = tested
         self.cable = cable
         self.box = box
     }
@@ -1483,9 +1510,8 @@ private struct SavedRun: Codable {
         index = try keys.decode(Int.self, forKey: .index)
         plan = try keys.decodeIfPresent([String].self, forKey: .plan) ?? []
         items = try keys.decode([SavedItem].self, forKey: .items)
-        glass = try keys.decode(Int.self, forKey: .glass)
-        back = try keys.decode(Int.self, forKey: .back)
-        body = try keys.decode(Int.self, forKey: .body)
+        look = try keys.decodeIfPresent(String.self, forKey: .look) ?? ""
+        tested = try keys.decodeIfPresent(Date.self, forKey: .tested)
         cable = try keys.decode(Bool.self, forKey: .cable)
         box = try keys.decode(Bool.self, forKey: .box)
     }
@@ -1496,15 +1522,14 @@ private struct SavedRun: Codable {
         try keys.encode(index, forKey: .index)
         try keys.encode(plan, forKey: .plan)
         try keys.encode(items, forKey: .items)
-        try keys.encode(glass, forKey: .glass)
-        try keys.encode(back, forKey: .back)
-        try keys.encode(body, forKey: .body)
+        try keys.encode(look, forKey: .look)
+        try keys.encodeIfPresent(tested, forKey: .tested)
         try keys.encode(cable, forKey: .cable)
         try keys.encode(box, forKey: .box)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case phase, index, plan, items, glass, back, body, cable, box
+        case phase, index, plan, items, look, tested, cable, box
     }
 }
 
