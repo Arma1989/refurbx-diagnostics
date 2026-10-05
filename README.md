@@ -1,6 +1,8 @@
-# RefurbX Diagnostics per iPhone
+# RefurbX Diagnostica per iPhone
 
-App nativa dei test. Team ID `L9F47LJC86`, bundle `eu.refurbx.diagnostics`.
+App nativa dei test, versione 1.0.16 (build 17). Sull'iPhone il nome è **RefurbX Diagnostica**. Team ID `L9F47LJC86`, bundle `eu.refurbx.diagnostics`.
+
+Il permesso NFC è `TAG`. Se la firma si ferma perché il profilo non lo contiene, su developer.apple.com salva di nuovo NFC Tag Reading per `eu.refurbx.diagnostics` e rilancia la build una volta.
 
 Codemagic legge `codemagic.yaml` in questa cartella e compila sul Mac mini M2. La build parte solo a mano, così non consuma i minuti gratuiti prima che la firma sia pronta.
 
