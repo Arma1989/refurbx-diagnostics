@@ -1,5 +1,6 @@
 import AVKit
 import MapKit
+import MediaPlayer
 import SwiftUI
 
 private let navy = Look.navy
@@ -81,10 +82,10 @@ private struct IntroScreen: View {
             if canResume {
                 BenchButton(title: "Riprendi la scheda", kind: .secondary, action: resume)
             }
-            BenchButton(title: "Tutti i test · \(Catalog.rows.count)", action: startAll)
+            BenchButton(title: "Tutti i test · \(HardwareFit.rows(in: nil).count)", action: startAll)
             ScrollView {
                 VStack(spacing: 8) {
-                    ForEach(Catalog.groups, id: \.self) { group in
+                    ForEach(Catalog.groups.filter { !HardwareFit.rows(in: $0).isEmpty }, id: \.self) { group in
                         Button(action: { startGroup(group) }) {
                             HStack(spacing: 14) {
                                 ZStack {
@@ -103,7 +104,7 @@ private struct IntroScreen: View {
                                         .foregroundStyle(Look.mute)
                                 }
                                 Spacer()
-                                Text("\(Catalog.count(group))")
+                                Text("\(HardwareFit.rows(in: group).count)")
                                     .font(.system(size: 15, weight: .semibold))
                                     .foregroundStyle(Look.mute)
                                 Image(systemName: "chevron.right")
@@ -170,6 +171,34 @@ private struct RunScreen: View {
     @ViewBuilder private var stage: some View {
         if model.currentId == "memory" {
             MemoryBoard(total: model.memoryTotal, free: model.memoryFree, used: model.memoryUsed)
+        } else if model.currentId == "identity" {
+            Text(model.detail.isEmpty ? "Lettura del modello" : model.detail)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else if model.currentId == "network" || model.currentId == "bluetooth" {
+            KeyMark(on: model.keyOk, waiting: model.detail.isEmpty ? "Controllo" : model.detail)
+        } else if model.currentId == "volume_up" || model.currentId == "volume_down" || model.currentId == "power_button" {
+            ZStack {
+                if model.currentId != "power_button" {
+                    VolumeCatcher()
+                        .frame(width: 200, height: 36)
+                }
+                KeyMark(
+                    on: model.keyOk,
+                    waiting: model.keyOk
+                        ? "Tasto ok"
+                        : (model.currentId == "volume_down" ? "Premi volume −" : model.currentId == "volume_up" ? "Premi volume +" : "Premi accensione")
+                )
+            }
+        } else if model.currentId == "light" {
+            VStack(spacing: 12) {
+                LightBar(level: model.lightLevel)
+                if model.showCamera {
+                    CameraPreview(session: model.camera.session, front: false)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+            }
         } else if model.currentId == "gps" {
             GpsBoard(accuracy: model.gpsAccuracy, latitude: model.gpsLatitude, longitude: model.gpsLongitude)
         } else if model.currentId == "multitouch" {
@@ -902,7 +931,7 @@ private struct FacePlate: View {
     var body: some View {
         Canvas { context, size in
             context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
-            guard points.count > 100 else { return }
+            guard points.count > 40 else { return }
             var dots = Path()
             for point in points {
                 let center = CGPoint(x: point.x * size.width, y: point.y * size.height)
@@ -912,12 +941,64 @@ private struct FacePlate: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay {
-            if points.count < 100 {
-                Text("Avvicina il volto")
+            if points.count < 40 {
+                Text("Avvicina il volto. I puntini girano con la testa.")
+                    .multilineTextAlignment(.center)
                     .foregroundStyle(.white.opacity(0.7))
+                    .padding(24)
             }
         }
     }
+}
+
+private struct KeyMark: View {
+    let on: Bool
+    let waiting: String
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 88, weight: .semibold))
+                .foregroundStyle(on ? Color(red: 0.12, green: 0.66, blue: 0.48) : Color.white.opacity(0.35))
+            Text(waiting)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct LightBar: View {
+    let level: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Luce vista dalla fotocamera")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.7))
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.12))
+                    Capsule()
+                        .fill(cyan)
+                        .frame(width: max(8, geo.size.width * CGFloat(min(1, max(0, level)))))
+                }
+            }
+            .frame(height: 18)
+        }
+    }
+}
+
+private struct VolumeCatcher: UIViewRepresentable {
+    func makeUIView(context: Context) -> MPVolumeView {
+        let view = MPVolumeView(frame: CGRect(x: 0, y: 0, width: 200, height: 36))
+        view.showsRouteButton = false
+        view.alpha = 0.02
+        return view
+    }
+
+    func updateUIView(_ uiView: MPVolumeView, context: Context) {}
 }
 
 private struct AccelPad: View {

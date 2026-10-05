@@ -61,6 +61,8 @@ final class DiagModel: ObservableObject {
     @Published var benchLink = UserDefaults.standard.string(forKey: "refurbx.bench-link") ?? ""
     @Published var benchState = ""
     @Published var benchSending = false
+    @Published var keyOk = false
+    @Published var lightLevel: Double = 0
 
     var planCount: Int { max(plan.count, 1) }
     var activeRows: [Catalog.Row] {
@@ -90,6 +92,10 @@ final class DiagModel: ObservableObject {
     private var armPower = false
     private var volumePrevious: Float = -1
     private var volumeTimer: Timer?
+    private var volumeObservation: NSKeyValueObservation?
+    private var lightWarm = 0
+    private var lightFloor = 0.0
+    private var lightCeil = 0.0
     private var playback: AVAudioPlayer?
     private var observers: [NSObjectProtocol] = []
     private var micQueue: [AVAudioSessionDataSourceDescription] = []
@@ -109,7 +115,7 @@ final class DiagModel: ObservableObject {
     private var nfcAttempt = 0
 
     func begin(group: String?) {
-        let chosen = Catalog.rows.filter { group == nil || $0.group == group }
+        let chosen = HardwareFit.rows(in: group)
         guard !chosen.isEmpty else { return }
         UIDevice.current.isBatteryMonitoringEnabled = true
         plan = chosen.map(\.id)
@@ -130,7 +136,12 @@ final class DiagModel: ObservableObject {
             begin(group: nil)
             return
         }
-        plan = saved.plan.isEmpty ? Catalog.rows.map(\.id) : saved.plan
+        let raw = saved.plan.isEmpty ? Catalog.rows.map(\.id) : saved.plan
+        plan = raw.filter { HardwareFit.supports($0) && Catalog.rows.contains { row in row.id == $0 } }
+        guard !plan.isEmpty else {
+            begin(group: nil)
+            return
+        }
         outcomes = saved.items.map { Outcome(id: $0.id, status: $0.status, note: $0.note) }
         lookGrade = saved.look
         testedAt = saved.tested
@@ -200,11 +211,13 @@ final class DiagModel: ObservableObject {
         case "truedepth-retry":
             facePoints = []
             faceArmed = false
-            hint = "Guarda lo schermo. Il volto compare in bianco su nero solo se viene seguito. L'immagine a infrarossi resta nel sistema."
+            hint = "I puntini bianchi sono il volto visto dal sensore TrueDepth, non dalla fotocamera. Gira la testa: devono girare con te."
             actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
             armFace()
         case "wifi-retry":
             readNetwork()
+        case "bt-retry":
+            startBluetooth()
         case "open-settings":
             if let url = URL(string: UIApplication.openSettingsURLString) {
                 UIApplication.shared.open(url)
@@ -234,7 +247,13 @@ final class DiagModel: ObservableObject {
         if phase == .background { sawBackground = true }
         if phase == .active && (sawLock || sawBackground) {
             armPower = false
-            settle("power_button", "pass", "Schermo spento e riacceso")
+            keyOk = true
+            detail = "Accensione ricevuta"
+            hint = "Tasto ok."
+            later(0.8) {
+                guard self.still("power_button") else { return }
+                self.settle("power_button", "pass", "Schermo spento e riacceso")
+            }
         }
     }
 
@@ -433,6 +452,11 @@ final class DiagModel: ObservableObject {
         gpsLongitude = nil
         bestGps = nil
         sawUnplugged = false
+        keyOk = false
+        lightLevel = 0
+        lightWarm = 0
+        lightFloor = 0
+        lightCeil = 0
     }
 
     func beginCurrent() {
@@ -450,7 +474,6 @@ final class DiagModel: ObservableObject {
         let row = current
         switch row.id {
         case "identity": readIdentity()
-        case "battery": readBattery()
         case "network": readNetwork()
         case "display": hint = "Tocca lo schermo per passare di colore. Poi conferma se è uniforme."
         case "touch":
@@ -506,8 +529,7 @@ final class DiagModel: ObservableObject {
         case "lidar": startDepth()
         case "memory": readMemory()
         case "proximity": watchProximity()
-        case "light":
-            settle("light", "absent", "iOS non consegna il sensore di luce alle app")
+        case "light": startLight()
         case "compass": startCompass()
         case "headphones": watchHeadphones()
         case "call":
@@ -561,38 +583,10 @@ final class DiagModel: ObservableObject {
         let points = "\(Int(UIScreen.main.bounds.width))×\(Int(UIScreen.main.bounds.height))"
         let pixels = "\(Int(UIScreen.main.bounds.width * scale))×\(Int(UIScreen.main.bounds.height * scale))"
         let note = "\(model) · \(os) · \(points) pt · \(pixels) px"
-        settleSoon("identity", "pass", note)
-    }
-
-    private func readBattery() {
-        UIDevice.current.isBatteryMonitoringEnabled = true
-        hint = "Leggo la percentuale."
-        if let note = batteryNote() {
-            settleSoon("battery", "pass", note)
-            return
-        }
-        later(1.2) {
-            guard self.still("battery") else { return }
-            if let note = self.batteryNote() {
-                self.settle("battery", "pass", note)
-            } else {
-                self.settle("battery", "fail", "Percentuale non disponibile")
-            }
-        }
-    }
-
-    private func batteryNote() -> String? {
-        let level = UIDevice.current.batteryLevel
-        guard level >= 0 else { return nil }
-        let percent = Int((level * 100).rounded())
-        let state: String
-        switch UIDevice.current.batteryState {
-        case .charging: state = "in carica"
-        case .full: state = "carica"
-        case .unplugged: state = "non in carica"
-        default: state = "stato sconosciuto"
-        }
-        return "\(percent)%, \(state)"
+        hint = "Modello letto. Resta un attimo così puoi leggerlo."
+        detail = note
+        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        later(3) { self.settle("identity", "pass", note) }
     }
 
     private func readMemory() {
@@ -616,42 +610,35 @@ final class DiagModel: ObservableObject {
     }
 
     private func readNetwork() {
-        hint = "Controllo il Wi-Fi."
+        keyOk = false
+        hint = "Controllo se il Wi-Fi è collegato."
+        detail = "In controllo"
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         NetworkProbe.check { [weak self] kind in
             guard let self, self.still("network") else { return }
-            switch kind {
-            case "wifi":
-                self.settle("network", "pass", "Wi-Fi attivo")
-            case "cellular":
-                self.hint = "C'è solo la rete cellulare. Accendi il Wi-Fi, poi riprova."
+            if kind == "wifi" {
+                self.keyOk = true
+                self.detail = "Wi-Fi collegato"
+                self.hint = "Il telefono è sul Wi-Fi. Conferma se è la rete del negozio."
                 self.actions = [
-                    Act(label: "Riprova", status: "wifi-retry", note: ""),
-                    Act(label: "Wi-Fi spento", status: "fail", note: "Wi-Fi non attivo"),
+                    Act(label: "Wi-Fi collegato", status: "pass", note: "Wi-Fi collegato"),
+                    Act(label: "Non è collegato", status: "fail", note: "Wi-Fi non collegato"),
                     Act(label: "Salta", status: "skip", note: "Non eseguito"),
                 ]
-            default:
-                self.hint = "Nessun Wi-Fi. Accendilo e riprova, oppure segna l'esito."
+            } else {
+                self.keyOk = false
+                self.detail = "Wi-Fi non collegato"
+                self.hint = "Collega il Wi-Fi e riprova."
                 self.actions = [
                     Act(label: "Riprova", status: "wifi-retry", note: ""),
-                    Act(label: "Wi-Fi spento", status: "fail", note: "Wi-Fi non attivo"),
                     Act(label: "Salta", status: "skip", note: "Non eseguito"),
                 ]
             }
         }
-        later(8) {
-            guard self.still("network"), self.actions.count < 2 else { return }
-            self.hint = "Il Wi-Fi non ha risposto."
-            self.actions = [
-                Act(label: "Riprova", status: "wifi-retry", note: ""),
-                Act(label: "Wi-Fi spento", status: "fail", note: "Wi-Fi non attivo"),
-                Act(label: "Salta", status: "skip", note: "Non eseguito"),
-            ]
-        }
     }
 
     private func startNfc() {
-        hint = "Si apre la finestra di sistema per leggere un tag. Se non compare, premi Leggi tag."
+        hint = "Si apre la finestra di sistema. Appoggia la scheda sul retro, in alto, e tienila ferma finché non compare NFC ok."
         detail = ""
         actions = [
             Act(label: "Leggi tag", status: "nfc-retry", note: ""),
@@ -669,9 +656,9 @@ final class DiagModel: ObservableObject {
                 return
             }
             self.hint = status == "cancel"
-                ? "Lettura annullata. Premi Leggi tag e avvicina un tag al retro, in alto."
-                : (note.isEmpty ? "La finestra NFC non è rimasta aperta. Premi Leggi tag." : note)
-            self.detail = "In attesa del tag"
+                ? "Lettura chiusa. Premi Leggi tag e tieni la scheda ferma sul retro, in alto."
+                : (note.isEmpty ? "La finestra NFC si è chiusa prima del tag. Premi Leggi tag." : note)
+            self.detail = "Nessun tag registrato"
             self.actions = [
                 Act(label: "Leggi tag", status: "nfc-retry", note: ""),
                 Act(label: "Non legge", status: "fail", note: "NFC non ha letto un tag"),
@@ -689,7 +676,7 @@ final class DiagModel: ObservableObject {
     private func openNfcSheet() {
         guard still("nfc") else { return }
         nfcAttempt += 1
-        hint = "Avvicina un tag NFC al retro, in alto."
+        hint = "Tieni la scheda ferma sul retro, in alto. Appena il telefono la vede, il test passa."
         detail = "Finestra di lettura aperta"
         tags.start()
     }
@@ -816,37 +803,61 @@ final class DiagModel: ObservableObject {
 
     private func watchVolume(up: Bool) {
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.ambient, mode: .default, options: [])
+        try? session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
         try? session.setActive(true)
+        keyOk = false
         volumePrevious = session.outputVolume
         let id = up ? "volume_up" : "volume_down"
         if up && volumePrevious > 0.95 {
-            hint = "Il volume è già al massimo. Premi volume giù, poi di nuovo volume su."
+            hint = "Il volume è già al massimo. Premi volume giù una volta, poi di nuovo volume su. Compare la spunta appena il tasto risponde."
         } else if !up && volumePrevious < 0.05 {
-            hint = "Il volume è già al minimo. Premi volume su, poi di nuovo volume giù."
+            hint = "Il volume è già al minimo. Premi volume su una volta, poi di nuovo volume giù. Compare la spunta appena il tasto risponde."
         } else {
-            hint = up ? "Premi il tasto volume su. La barra di sistema deve salire." : "Premi il tasto volume giù. La barra di sistema deve scendere."
+            hint = up
+                ? "Premi volume su. Compare la spunta appena il tasto risponde."
+                : "Premi volume giù. Compare la spunta appena il tasto risponde."
         }
+        detail = up ? "In attesa di volume +" : "In attesa di volume −"
         actions = [
             Act(label: "Non risponde", status: "fail", note: up ? "Volume su fermo" : "Volume giù fermo"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
-        let timer = Timer(timeInterval: 0.15, repeats: true) { [weak self] _ in
+        volumeObservation = session.observe(\.outputVolume, options: [.new, .old]) { [weak self] _, change in
+            let now = change.newValue ?? session.outputVolume
+            let previous = change.oldValue ?? -1
             Task { @MainActor in
-                guard let self, self.still(id) else { return }
+                self?.noteVolume(up: up, previous: previous, now: now)
+            }
+        }
+        let timer = Timer(timeInterval: 0.12, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
                 let now = session.outputVolume
-                if self.volumePrevious >= 0 {
-                    if up && now > self.volumePrevious + 0.01 {
-                        self.settle(id, "pass", "Volume su ricevuto")
-                    } else if !up && now < self.volumePrevious - 0.01 {
-                        self.settle(id, "pass", "Volume giù ricevuto")
-                    }
-                }
+                self.noteVolume(up: up, previous: self.volumePrevious, now: now)
                 self.volumePrevious = now
             }
         }
         volumeTimer = timer
         RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func noteVolume(up: Bool, previous: Float, now: Float) {
+        let id = up ? "volume_up" : "volume_down"
+        guard still(id), !keyOk, previous >= 0 else { return }
+        let hit = up ? now > previous + 0.008 : now < previous - 0.008
+        guard hit else { return }
+        markKey(id, note: up ? "Volume su ricevuto" : "Volume giù ricevuto")
+    }
+
+    private func markKey(_ id: String, note: String) {
+        guard still(id), !keyOk else { return }
+        keyOk = true
+        detail = note
+        hint = "Tasto ok."
+        later(0.8) {
+            guard self.still(id) else { return }
+            self.settle(id, "pass", note)
+        }
     }
 
     private func startPower() {
@@ -963,20 +974,42 @@ final class DiagModel: ObservableObject {
     }
 
     private func startBluetooth() {
-        hint = "Controllo che il Bluetooth si accenda. Se compare la richiesta, consenti."
+        keyOk = false
+        hint = "Controllo il Bluetooth. Resta su questa schermata: si vede se è acceso."
+        detail = "In controllo"
         actions = [
-            Act(label: "Non si accende", status: "fail", note: "Bluetooth spento o non disponibile"),
             Act(label: "Salta", status: "skip", note: "Bluetooth non verificato"),
         ]
         radio.onResult = { [weak self] status, note in
             guard let self, self.still("bluetooth") else { return }
-            if status == "skip", note == "Bluetooth spento" {
-                self.hint = "Bluetooth spento. Accendilo dal Centro di Controllo: il test prosegue da solo."
-                self.detail = "Spento"
+            if status == "pass" {
+                self.keyOk = true
+                self.detail = "Bluetooth acceso"
+                self.hint = "Il Bluetooth risponde. Conferma se funziona."
+                self.actions = [
+                    Act(label: "Funziona", status: "pass", note: "Bluetooth acceso"),
+                    Act(label: "Non funziona", status: "fail", note: "Bluetooth acceso ma non utilizzabile"),
+                    Act(label: "Salta", status: "skip", note: "Non eseguito"),
+                ]
                 return
             }
-            self.settle("bluetooth", status, note)
+            if status == "absent" {
+                self.settle("bluetooth", "absent", note)
+                return
+            }
+            self.keyOk = false
+            let denied = note.localizedCaseInsensitiveContains("permesso") || note.localizedCaseInsensitiveContains("negato")
+            self.detail = denied ? "Permesso negato" : "Bluetooth spento"
+            self.hint = denied
+                ? "In Impostazioni consenti il Bluetooth a RefurbX, poi riprova."
+                : "Accendi il Bluetooth e riprova."
+            self.actions = [
+                Act(label: "Riprova", status: "bt-retry", note: ""),
+                Act(label: denied ? "Apri Impostazioni" : "Non funziona", status: denied ? "open-settings" : "fail", note: denied ? "" : "Bluetooth spento"),
+                Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            ]
         }
+        radio.stop()
         radio.start()
     }
 
@@ -1111,10 +1144,10 @@ final class DiagModel: ObservableObject {
             settle("truedepth", "absent", "Niente fotocamera TrueDepth")
             return
         }
-        hint = "Guarda lo schermo. Il volto resta in punti bianchi su nero finché non confermi. L'immagine a infrarossi resta nel sistema."
+        hint = "I puntini bianchi sono il volto visto dal sensore TrueDepth, non dalla fotocamera a colori. Gira la testa: i puntini devono girare con te. La foto a infrarossi non si vede, resta in iOS."
         actions = [
-            Act(label: "Volto seguito", status: "pass", note: "TrueDepth ha seguito il volto. L'immagine a infrarossi resta nel sistema."),
-            Act(label: "Non segue il volto", status: "fail", note: "TrueDepth presente, volto non seguito"),
+            Act(label: "I puntini girano", status: "pass", note: "TrueDepth ha seguito la testa. L'immagine a infrarossi resta nel sistema."),
+            Act(label: "Non seguono la testa", status: "fail", note: "TrueDepth presente, la testa non è seguita"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
         armFace()
@@ -1122,10 +1155,10 @@ final class DiagModel: ObservableObject {
 
     private func armFace() {
         faceTrack.onPicture = { [weak self] points in
-            guard let self, self.still("truedepth"), points.count > 100 else { return }
+            guard let self, self.still("truedepth"), points.count > 40 else { return }
             self.facePoints = points
             self.faceArmed = true
-            self.detail = "Volto seguito"
+            self.detail = "Volto seguito. Gira la testa: i puntini devono girare con te."
         }
         faceTrack.start { _ in }
     }
@@ -1166,6 +1199,72 @@ final class DiagModel: ObservableObject {
                     }
                 }
             }
+        }
+    }
+
+    private func startLight() {
+        lightWarm = 0
+        lightFloor = 0
+        lightCeil = 0
+        lightLevel = 0
+        hint = "Apro la fotocamera dietro. Poi copri l'obiettivo con la mano e scoprilo: la barra deve muoversi."
+        detail = "In avvio"
+        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        AVCaptureDevice.requestAccess(for: .video) { granted in
+            DispatchQueue.main.async {
+                guard self.still("light") else { return }
+                guard granted else {
+                    self.settle("light", "skip", "Permesso fotocamera negato")
+                    return
+                }
+                self.showCamera = true
+                self.camera.start(front: false, onFocus: {}, onRunning: {
+                    guard self.still("light") else { return }
+                    self.hint = "Copri e scopri l'obiettivo posteriore. iOS non dà i lux: la barra segue la luce vista dalla fotocamera."
+                    self.detail = "Copri e scopri l'obiettivo"
+                    self.actions = [
+                        Act(label: "Non reagisce", status: "fail", note: "La fotocamera non ha reagito alla luce"),
+                        Act(label: "Salta", status: "skip", note: "Non eseguito"),
+                    ]
+                    self.pollLight()
+                }, onError: { message in
+                    self.settle("light", "fail", message)
+                })
+            }
+        }
+    }
+
+    private func pollLight() {
+        later(0.25) {
+            guard self.still("light") else { return }
+            if let value = self.camera.ambientLevel() {
+                self.noteLight(value)
+            }
+            guard self.still("light") else { return }
+            self.pollLight()
+        }
+    }
+
+    private func noteLight(_ value: Double) {
+        lightWarm += 1
+        if lightWarm <= 4 {
+            lightLevel = 0.45
+            return
+        }
+        if lightWarm == 5 {
+            lightFloor = value
+            lightCeil = value
+        }
+        lightFloor = min(lightFloor, value)
+        lightCeil = max(lightCeil, value)
+        let span = lightCeil - lightFloor
+        lightLevel = span < 0.0000001 ? 0.5 : min(1, max(0, (value - lightFloor) / span))
+        let ratio = lightCeil / max(lightFloor, 1e-9)
+        if ratio > 1.15 {
+            detail = "La luce sta cambiando"
+        }
+        if lightWarm >= 10 && ratio >= 3 {
+            settle("light", "pass", "La fotocamera ha reagito coprendo e scoprendo l'obiettivo")
         }
     }
 
@@ -1262,7 +1361,7 @@ final class DiagModel: ObservableObject {
 
     private func recordMic() {
         guard still("microphone") else { return }
-        hint = "Parla per otto secondi. Poi riascolti la voce."
+        hint = "Parla per quattro secondi. Poi riascolti la voce."
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         AVAudioApplication.requestRecordPermission { granted in
             DispatchQueue.main.async {
@@ -1289,10 +1388,10 @@ final class DiagModel: ObservableObject {
         micLevel = 0
         micToken += 1
         let token = micToken
-        hint = "Parla verso \(micLabel.lowercased()), segnato sul disegno, per otto secondi. Poi confermi a mano: il livello da solo non basta."
+        hint = "Parla verso \(micLabel.lowercased()), segnato sul disegno, per quattro secondi. Poi confermi a mano: il livello da solo non basta."
         detail = micQueue.count > 1 ? "\(micCursor + 1) di \(micQueue.count)" : micLabel
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
-        mic.record(seconds: 8, source: source, onLevel: { level in
+        mic.record(seconds: 4, source: source, onLevel: { level in
             Task { @MainActor in
                 guard self.micToken == token, self.still("microphone") else { return }
                 self.micLevel = min(100, level / 4)
@@ -1322,7 +1421,7 @@ final class DiagModel: ObservableObject {
                 self.actions = items
             }
         })
-        later(14) {
+        later(9) {
             guard self.micToken == token, self.still("microphone"), self.actions.count < 2 else { return }
             self.hint = "La registrazione non è arrivata."
             self.actions = [
@@ -1382,6 +1481,8 @@ final class DiagModel: ObservableObject {
         }
         volumeTimer?.invalidate()
         volumeTimer = nil
+        volumeObservation?.invalidate()
+        volumeObservation = nil
         UIDevice.current.isProximityMonitoringEnabled = false
         for token in observers {
             NotificationCenter.default.removeObserver(token)

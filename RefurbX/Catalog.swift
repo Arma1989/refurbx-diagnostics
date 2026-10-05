@@ -23,7 +23,6 @@ enum Catalog {
 
     static let rows: [Row] = [
         Row(id: "identity", group: "Sistema", title: "Identità", weight: 1, critical: false),
-        Row(id: "battery", group: "Sistema", title: "Batteria", weight: 2, critical: false),
         Row(id: "memory", group: "Sistema", title: "Memoria", weight: 1, critical: false),
         Row(id: "network", group: "Sistema", title: "Wi-Fi", weight: 1, critical: false),
         Row(id: "display", group: "Schermo", title: "Display", weight: 3, critical: true),
@@ -78,7 +77,7 @@ enum Catalog {
 
     static func homeLine(_ group: String) -> String {
         switch group {
-        case "Sistema": return "Modello, batteria, memoria"
+        case "Sistema": return "Modello, memoria e Wi-Fi"
         case "Schermo": return "Colori e touch"
         case "Audio": return "Speaker, microfoni, vibrazione"
         case "Foto": return "Obiettivi e profondità"

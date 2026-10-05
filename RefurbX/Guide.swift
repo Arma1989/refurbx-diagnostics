@@ -34,37 +34,36 @@ struct GuideScreen: View {
 private enum GuideCopy {
     static func line(_ id: String) -> String {
         switch id {
-        case "identity": return "Leggo modello, sistema e risoluzione. Non devi fare nulla."
-        case "battery": return "Leggo la percentuale e se è in carica."
+        case "identity": return "Leggo modello, sistema e risoluzione. Resta qualche secondo, così puoi leggerli."
         case "memory": return "Mostro il totale, lo spazio libero e quello usato del telefono."
-        case "network": return "Controllo che il Wi-Fi sia acceso. La password non viene letta."
+        case "network": return "Controllo se il Wi-Fi è collegato. Se non lo è, collega il Wi-Fi e riprova."
         case "display": return "Lo schermo cambia colore. Tocca per andare avanti e cerca macchie o pixel spenti."
         case "touch": return "Le celle sono piccole. Trascina un dito su tutte, anche sui bordi."
         case "multitouch": return "Appoggia due dita insieme, come nell'esempio."
-        case "force": return "Questo schermo non misura la pressione. Il test resta non disponibile."
-        case "stylus": return "L'iPhone non riceve la Apple Pencil. Il test resta non disponibile."
+        case "force": return "Premi piano e poi forte. Compare solo se questo schermo misura la pressione."
+        case "stylus": return "La penna compare solo se questo modello la riceve."
         case "speaker": return "Una nota sale dall'altoparlante in basso. Poi confermi a mano se è chiara."
         case "earpiece": return "Avvicina l'orecchio alla capsula in alto, segnata nell'esempio."
-        case "microphone": return "Ogni microfono registra otto secondi. Poi riascolti e confermi a mano."
+        case "microphone": return "Ogni microfono registra quattro secondi. Poi riascolti e confermi a mano."
         case "vibration": return "Il telefono vibra tre volte. Confermi solo se lo senti in mano."
         case "call": return "Tienilo come in chiamata. Il suono deve uscire solo dalla capsula in alto."
         case "headphones": return "Collega le cuffie se le hai. Se non le hai, salta."
         case "camera_back": return "Si apre la fotocamera dietro. Conferma solo se l'immagine è nitida."
-        case "camera_front": return "Si apre la fotocamera davanti, in verticale. Conferma solo se vedi il volto dritto."
+        case "camera_front": return "Si apre la fotocamera davanti. Il volto deve essere dritto, in verticale."
         case "autofocus": return "Inquadra un codice QR con la camera dietro. Se lo legge, il test è ok."
         case "flash": return "Il flash si accende. Conferma solo se lo vedi acceso."
-        case "truedepth": return "Il volto resta in punti bianchi su nero. Confermi tu quando hai visto abbastanza."
+        case "truedepth": return "I puntini bianchi sono il volto visto dal sensore TrueDepth, non dalla fotocamera. Gira la testa: devono girare con te."
         case "lidar": return "La vista a infrarossi resta aperta. Avvicina la mano: solo il vicino diventa più scuro."
         case "proximity": return "Copri il sensore in alto, vicino alla capsula."
-        case "light": return "iOS non consegna il sensore di luce. Il test resta non disponibile."
+        case "light": return "Copri e scopri l'obiettivo dietro. La barra deve muoversi. iOS non dà il numero di lux."
         case "accelerometer": return "Inclina il telefono verso i quattro bordi, come la pallina."
         case "gyroscope": return "Tienilo fermo, poi ruotalo di lato, avanti e intorno a te."
         case "compass": return "Tienilo in piano e giralo finché l'anello si riempie."
         case "gps": return "Consente la posizione precisa. Si apre una mappa con il punto reale: confermi tu quando è quello giusto."
-        case "bluetooth": return "Controllo che il Bluetooth si accenda. Se compare la richiesta, consenti."
-        case "nfc": return "Compare la finestra di sistema. Se non esce, premi Leggi tag e avvicina un tag al retro, in alto."
-        case "volume_up": return "Premi il tasto volume più, sul fianco."
-        case "volume_down": return "Premi il tasto volume meno, sul fianco."
+        case "bluetooth": return "Resta sulla schermata. Si vede se il Bluetooth è acceso. Se è spento, accendilo e riprova."
+        case "nfc": return "Appoggia la scheda sul retro, in alto, e tienila ferma. Il test passa appena il telefono la vede, anche se è una scheda Google."
+        case "volume_up": return "Premi volume più. Compare una spunta appena il tasto risponde."
+        case "volume_down": return "Premi volume meno. Compare una spunta appena il tasto risponde."
         case "power_button": return "Premi il tasto di accensione, poi riapri lo schermo."
         case "mute_switch": return "Su questo iPhone il tasto Azione non dice all'app se l'hai premuto."
         case "charging": return "Collega il cavo. Il test passa quando il sistema vede la carica."
@@ -149,6 +148,8 @@ private struct DemoScene: View {
                 qrTarget
             case "camera_front", "biometrics":
                 frontFace
+            case "light":
+                lightMeter
             case "truedepth":
                 faceDots
             case "lidar":
@@ -163,7 +164,7 @@ private struct DemoScene: View {
                 radioWaves
             case "volume_up", "volume_down", "power_button", "mute_switch":
                 sideButton
-            case "charging", "battery":
+            case "charging":
                 cable
             case "wireless":
                 wirelessPad
@@ -171,7 +172,7 @@ private struct DemoScene: View {
                 earbuds
             case "memory", "identity":
                 readout
-            case "light", "force", "stylus":
+            case "force", "stylus":
                 unavailable
             default:
                 readout
@@ -439,6 +440,17 @@ private struct DemoScene: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(22)
+    }
+
+    private var lightMeter: some View {
+        VStack {
+            Spacer()
+            Capsule()
+                .fill(cyan)
+                .frame(width: 120, height: 14)
+                .scaleEffect(x: 0.3 + loop * 0.7, y: 1, anchor: .leading)
+                .padding(28)
+        }
     }
 
     private var unavailable: some View {
