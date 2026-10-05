@@ -212,6 +212,14 @@ private struct RunScreen: View {
             VStack(spacing: 8) {
                 CameraPreview(session: model.camera.session, front: model.currentId == "camera_front")
                     .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .overlay {
+                        if model.currentId == "autofocus" {
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(cyan, lineWidth: 3)
+                                .frame(width: 160, height: 160)
+                                .allowsHitTesting(false)
+                        }
+                    }
                 if model.currentId == "camera_back", model.lenses.count > 1 {
                     HStack(spacing: 8) {
                         ForEach(model.lenses, id: \.rawValue) { type in

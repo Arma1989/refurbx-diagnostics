@@ -50,8 +50,8 @@ private enum GuideCopy {
         case "call": return "Tienilo come in chiamata. Il suono deve uscire solo dalla capsula in alto."
         case "headphones": return "Collega le cuffie se le hai. Se non le hai, salta."
         case "camera_back": return "Si apre la fotocamera dietro. Conferma solo se l'immagine è nitida."
-        case "camera_front": return "Si apre la fotocamera davanti. Conferma solo se vedi il volto."
-        case "autofocus": return "Avvicina un oggetto e poi allontanalo. Il fuoco deve muoversi."
+        case "camera_front": return "Si apre la fotocamera davanti, in verticale. Conferma solo se vedi il volto dritto."
+        case "autofocus": return "Inquadra un codice QR con la camera dietro. Se lo legge, il test è ok."
         case "flash": return "Il flash si accende. Conferma solo se lo vedi acceso."
         case "truedepth": return "Il volto resta in punti bianchi su nero. Confermi tu quando hai visto abbastanza."
         case "lidar": return "La vista a infrarossi resta aperta. Avvicina la mano: solo il vicino diventa più scuro."
@@ -62,7 +62,7 @@ private enum GuideCopy {
         case "compass": return "Tienilo in piano e giralo finché l'anello si riempie."
         case "gps": return "Consente la posizione precisa. Si apre una mappa con il punto reale: confermi tu quando è quello giusto."
         case "bluetooth": return "Controllo che il Bluetooth si accenda. Se compare la richiesta, consenti."
-        case "nfc": return "Si apre la lettura NFC. Avvicina un tag vero al retro, in alto."
+        case "nfc": return "Compare la finestra di sistema. Se non esce, premi Leggi tag e avvicina un tag al retro, in alto."
         case "volume_up": return "Premi il tasto volume più, sul fianco."
         case "volume_down": return "Premi il tasto volume meno, sul fianco."
         case "power_button": return "Premi il tasto di accensione, poi riapri lo schermo."
@@ -143,8 +143,10 @@ private struct DemoScene: View {
                 topSensor
             case "microphone":
                 micDots
-            case "camera_back", "autofocus", "flash":
+            case "camera_back", "flash":
                 rearCamera
+            case "autofocus":
+                qrTarget
             case "camera_front", "biometrics":
                 frontFace
             case "truedepth":
@@ -257,6 +259,38 @@ private struct DemoScene: View {
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.white)
         }
+    }
+
+    private var qrTarget: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(cyan, lineWidth: 3)
+                .frame(width: 78, height: 78)
+                .scaleEffect(0.92 + loop * 0.08)
+            VStack(spacing: 4) {
+                HStack(spacing: 4) {
+                    qrCell
+                    qrCell
+                    qrCell
+                }
+                HStack(spacing: 4) {
+                    qrCell
+                    Color.clear.frame(width: 10, height: 10)
+                    qrCell
+                }
+                HStack(spacing: 4) {
+                    qrCell
+                    qrCell
+                    qrCell
+                }
+            }
+        }
+    }
+
+    private var qrCell: some View {
+        RoundedRectangle(cornerRadius: 1)
+            .fill(.white)
+            .frame(width: 10, height: 10)
     }
 
     private var rearCamera: some View {

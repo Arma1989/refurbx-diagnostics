@@ -249,12 +249,21 @@ final class MicProbe {
     }
 }
 
-final class CameraSession: NSObject {
+final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate {
     let session = AVCaptureSession()
     private let queue = DispatchQueue(label: "refurbx.camera")
     private var focusObservation: NSKeyValueObservation?
     private var lastLens: Float?
     private var focusGeneration = 0
+    private var onCodeHandler: ((String) -> Void)?
+
+    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+        guard let code = metadataObjects.compactMap({ $0 as? AVMetadataMachineReadableCodeObject }).first(where: { $0.type == .qr }),
+              let value = code.stringValue, !value.isEmpty else { return }
+        let callback = onCodeHandler
+        onCodeHandler = nil
+        callback?(value)
+    }
 
     static func backLenses() -> [AVCaptureDevice.DeviceType] {
         [.builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTelephotoCamera].filter {
@@ -262,13 +271,15 @@ final class CameraSession: NSObject {
         }
     }
 
-    func start(front: Bool, lens: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, onFocus: @escaping () -> Void, onRunning: @escaping () -> Void, onError: @escaping (String) -> Void) {
+    func start(front: Bool, lens: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, scanQR: Bool = false, onFocus: @escaping () -> Void, onCode: @escaping (String) -> Void = { _ in }, onRunning: @escaping () -> Void, onError: @escaping (String) -> Void) {
         focusGeneration += 1
         let generation = focusGeneration
+        onCodeHandler = nil
         queue.async {
             if self.session.isRunning { self.session.stopRunning() }
             self.session.beginConfiguration()
             self.session.inputs.forEach { self.session.removeInput($0) }
+            self.session.outputs.forEach { self.session.removeOutput($0) }
             let position: AVCaptureDevice.Position = front ? .front : .back
             let wanted: AVCaptureDevice.DeviceType = front ? .builtInWideAngleCamera : lens
             guard let camera = AVCaptureDevice.default(wanted, for: .video, position: position)
@@ -280,6 +291,14 @@ final class CameraSession: NSObject {
                 return
             }
             self.session.addInput(input)
+            var metadata: AVCaptureMetadataOutput?
+            if scanQR {
+                let output = AVCaptureMetadataOutput()
+                if self.session.canAddOutput(output) {
+                    self.session.addOutput(output)
+                    metadata = output
+                }
+            }
             if self.session.canSetSessionPreset(.hd1280x720) {
                 self.session.sessionPreset = .hd1280x720
             }
@@ -289,6 +308,13 @@ final class CameraSession: NSObject {
                 camera.unlockForConfiguration()
             }
             self.session.commitConfiguration()
+            if let metadata {
+                metadata.setMetadataObjectsDelegate(self, queue: .main)
+                if metadata.availableMetadataObjectTypes.contains(.qr) {
+                    metadata.metadataObjectTypes = [.qr]
+                }
+                self.onCodeHandler = onCode
+            }
             if !self.session.isRunning { self.session.startRunning() }
             DispatchQueue.main.async(execute: onRunning)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
@@ -310,6 +336,7 @@ final class CameraSession: NSObject {
 
     func stop(done: (() -> Void)? = nil) {
         focusGeneration += 1
+        onCodeHandler = nil
         queue.async {
             if self.session.isRunning { self.session.stopRunning() }
             DispatchQueue.main.async {
@@ -362,27 +389,50 @@ final class PreviewView: UIView {
     var previewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
 
     var front = false
+    private var runningObserver: NSObjectProtocol?
 
     override func layoutSubviews() {
         super.layoutSubviews()
         orient()
     }
 
+    func attach(session: AVCaptureSession) {
+        if previewLayer.session !== session {
+            previewLayer.session = session
+        }
+        if runningObserver == nil {
+            runningObserver = NotificationCenter.default.addObserver(
+                forName: .AVCaptureSessionDidStartRunning,
+                object: session,
+                queue: .main
+            ) { [weak self] _ in
+                self?.orient()
+            }
+        }
+        orient()
+    }
+
     func orient() {
         guard let connection = previewLayer.connection else { return }
-        let angle: CGFloat = 90
+        let device = (previewLayer.session?.inputs.first as? AVCaptureDeviceInput)?.device
+        let mirror = front || device?.position == .front
+        if connection.isVideoMirroringSupported {
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = mirror
+        }
+        let angle: CGFloat = mirror ? 270 : 90
         if connection.isVideoRotationAngleSupported(angle) {
             connection.videoRotationAngle = angle
-        }
-        if front, connection.isVideoMirroringSupported {
-            connection.automaticallyAdjustsVideoMirroring = false
-            connection.isVideoMirrored = true
         }
     }
 
     override func willMove(toWindow newWindow: UIWindow?) {
         super.willMove(toWindow: newWindow)
         if newWindow == nil {
+            if let runningObserver {
+                NotificationCenter.default.removeObserver(runningObserver)
+            }
+            runningObserver = nil
             previewLayer.session = nil
         }
     }
@@ -395,18 +445,14 @@ struct CameraPreview: UIViewRepresentable {
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
         view.front = front
-        view.previewLayer.session = session
         view.previewLayer.videoGravity = .resizeAspectFill
-        view.orient()
+        view.attach(session: session)
         return view
     }
 
     func updateUIView(_ uiView: PreviewView, context: Context) {
         uiView.front = front
-        if uiView.previewLayer.session !== session {
-            uiView.previewLayer.session = session
-        }
-        uiView.orient()
+        uiView.attach(session: session)
     }
 
     static func dismantleUIView(_ uiView: PreviewView, coordinator: ()) {
@@ -908,19 +954,37 @@ enum DiskProbe {
 final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
     private var session: NFCTagReaderSession?
     private var reported = false
+    private var generation = 0
     private let lock = NSLock()
     var onResult: ((String, String) -> Void)?
 
     func start() {
+        DispatchQueue.main.async { self.beginSession() }
+    }
+
+    func stop() {
+        generation += 1
+        onResult = nil
+        let current = session
+        session = nil
+        current?.invalidate()
+    }
+
+    private func beginSession() {
+        generation += 1
+        let token = generation
         lock.lock()
         reported = false
         lock.unlock()
+        let previous = session
+        session = nil
+        previous?.invalidate()
         guard NFCTagReaderSession.readingAvailable else {
-            finish("absent", "Questo iPhone non legge i tag NFC")
+            finish("absent", "Questo iPhone non legge i tag NFC", token: token)
             return
         }
         guard let session = NFCTagReaderSession(pollingOption: [.iso14443, .iso15693, .iso18092], delegate: self, queue: nil) else {
-            finish("absent", "Lettura NFC non disponibile")
+            finish("absent", "Lettura NFC non disponibile", token: token)
             return
         }
         session.alertMessage = "Avvicina un tag NFC al retro, in alto."
@@ -928,16 +992,10 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
         session.begin()
     }
 
-    func stop() {
-        session?.invalidate()
-        session = nil
-        onResult = nil
-    }
-
     func tagReaderSessionDidBecomeActive(_ session: NFCTagReaderSession) {}
 
     func tagReaderSession(_ session: NFCTagReaderSession, didDetect tags: [NFCTag]) {
-        guard let tag = tags.first else { return }
+        guard session === self.session, let tag = tags.first else { return }
         session.connect(to: tag) { error in
             if error != nil {
                 session.invalidate(errorMessage: "Tag non collegato")
@@ -960,12 +1018,22 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
     }
 
     func tagReaderSession(_ session: NFCTagReaderSession, didInvalidateWithError error: Error) {
+        guard session === self.session else { return }
         let code = (error as? NFCReaderError)?.code
         if code == .readerSessionInvalidationErrorUserCanceled {
             finish("cancel", "")
-        } else {
-            finish("fail", "NFC non ha letto un tag")
+            return
         }
+        if code == .readerSessionInvalidationErrorSessionTimeout {
+            finish("closed", "Tempo scaduto. Premi Leggi tag e avvicina di nuovo il tag.")
+            return
+        }
+        if code == .readerSessionInvalidationErrorSystemIsBusy {
+            finish("closed", "NFC occupato. Chiudi le altre finestre e premi Leggi tag.")
+            return
+        }
+        let text = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        finish("closed", text.isEmpty ? "La finestra NFC si è chiusa. Premi Leggi tag." : text)
     }
 
     private func ndefTag(_ tag: NFCTag) -> NFCNDEFTag? {
@@ -978,7 +1046,8 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
         }
     }
 
-    private func finish(_ status: String, _ note: String) {
+    private func finish(_ status: String, _ note: String, token: Int? = nil) {
+        if let token, token != generation { return }
         lock.lock()
         if reported {
             lock.unlock()

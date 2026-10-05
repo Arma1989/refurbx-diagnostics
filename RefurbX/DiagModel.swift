@@ -103,6 +103,7 @@ final class DiagModel: ObservableObject {
     private var forceSoft = false
     private var forceHard = false
     private var openedLenses: [String] = []
+    private var nfcAttempt = 0
 
     func begin(group: String?) {
         let chosen = Catalog.rows.filter { group == nil || $0.group == group }
@@ -199,7 +200,7 @@ final class DiagModel: ObservableObject {
                 UIApplication.shared.open(url)
             }
         case "nfc-retry":
-            startNfc()
+            openNfcSheet()
         case "lidar-ok":
             guard depthLive else {
                 hint = "La mappa non è ancora arrivata. Avvicina un oggetto: deve scurirsi."
@@ -237,7 +238,9 @@ final class DiagModel: ObservableObject {
         guard currentId == "camera_back" || currentId == "autofocus" else { return }
         if !openedLenses.contains(lensName) { openedLenses.append(lensName) }
         detail = openedLenses.joined(separator: " · ")
-        camera.start(front: false, lens: next, onFocus: {}, onRunning: {}, onError: { message in
+        camera.start(front: false, lens: next, scanQR: currentId == "autofocus", onFocus: {}, onCode: { value in
+            self.acceptQR(value)
+        }, onRunning: {}, onError: { message in
             self.detail = message
         })
     }
@@ -576,21 +579,46 @@ final class DiagModel: ObservableObject {
     }
 
     private func startNfc() {
-        hint = "Si apre la finestra di sistema. Avvicina un tag NFC al retro, in alto."
-        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        hint = "Si apre la finestra di sistema per leggere un tag. Se non compare, premi Leggi tag."
+        detail = ""
+        actions = [
+            Act(label: "Leggi tag", status: "nfc-retry", note: ""),
+            Act(label: "Non legge", status: "fail", note: "NFC non ha letto un tag"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
         tags.onResult = { [weak self] status, note in
             guard let self, self.still("nfc") else { return }
-            if status == "cancel" {
-                self.hint = "Lettura annullata. Riprova con un tag, oppure segna l'esito."
-                self.actions = [
-                    Act(label: "Riprova", status: "nfc-retry", note: ""),
-                    Act(label: "Non legge", status: "fail", note: "NFC non ha letto un tag"),
-                    Act(label: "Salta", status: "skip", note: "Non eseguito"),
-                ]
+            if status == "pass" {
+                self.settle("nfc", "pass", note)
                 return
             }
-            self.settle("nfc", status, note)
+            if status == "absent" {
+                self.settle("nfc", "absent", note)
+                return
+            }
+            self.hint = status == "cancel"
+                ? "Lettura annullata. Premi Leggi tag e avvicina un tag al retro, in alto."
+                : (note.isEmpty ? "La finestra NFC non è rimasta aperta. Premi Leggi tag." : note)
+            self.detail = "In attesa del tag"
+            self.actions = [
+                Act(label: "Leggi tag", status: "nfc-retry", note: ""),
+                Act(label: "Non legge", status: "fail", note: "NFC non ha letto un tag"),
+                Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            ]
         }
+        nfcAttempt += 1
+        let attempt = nfcAttempt
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self, self.still("nfc"), attempt == self.nfcAttempt else { return }
+            self.tags.start()
+        }
+    }
+
+    private func openNfcSheet() {
+        guard still("nfc") else { return }
+        nfcAttempt += 1
+        hint = "Avvicina un tag NFC al retro, in alto."
+        detail = "Finestra di lettura aperta"
         tags.start()
     }
 
@@ -901,7 +929,7 @@ final class DiagModel: ObservableObject {
                 self.camera.start(front: front, lens: self.lens, onFocus: {}, onRunning: {
                     guard self.still(id) else { return }
                     self.hint = front
-                        ? "Guarda il volto. Conferma solo se l'immagine è pulita."
+                        ? "Il volto deve essere in verticale. Conferma solo se l'immagine è pulita e dritta."
                         : "Cambia obiettivo se ce n'è più di uno. Conferma solo se l'immagine è nitida."
                     self.detail = front ? "" : self.openedLenses.joined(separator: " · ")
                     self.actions = [
@@ -972,7 +1000,7 @@ final class DiagModel: ObservableObject {
             settle("autofocus", "absent", "Obiettivo a fuoco fisso")
             return
         }
-        hint = "Apro la fotocamera. Avvicina un oggetto e poi allontanalo."
+        hint = "Apro la fotocamera dietro. Inquadra un codice QR."
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         AVCaptureDevice.requestAccess(for: .video) { granted in
             DispatchQueue.main.async {
@@ -982,21 +1010,14 @@ final class DiagModel: ObservableObject {
                     return
                 }
                 self.showCamera = true
-                self.camera.start(front: false, onFocus: {
-                    guard self.still("autofocus") else { return }
-                    self.detail = "Il fuoco si è mosso"
-                    self.hint = "Il fuoco si è mosso. Guarda l'immagine e conferma quando hai finito."
-                    self.actions = [
-                        Act(label: "Fuoco ok", status: "pass", note: "Messa a fuoco rilevata"),
-                        Act(label: "Non mette a fuoco", status: "fail", note: "Il fuoco non cambia"),
-                        Act(label: "Salta", status: "skip", note: "Non eseguito"),
-                    ]
+                self.camera.start(front: false, scanQR: true, onFocus: {}, onCode: { value in
+                    self.acceptQR(value)
                 }, onRunning: {
                     guard self.still("autofocus") else { return }
-                    self.hint = "Inquadra un oggetto vicino e poi uno lontano. L'immagine resta finché non confermi."
+                    self.hint = "Inquadra un codice QR. Se lo legge, il test è ok."
+                    self.detail = "In attesa del QR"
                     self.actions = [
-                        Act(label: "Fuoco ok", status: "pass", note: "Messa a fuoco confermata a vista"),
-                        Act(label: "Non mette a fuoco", status: "fail", note: "Il fuoco non cambia"),
+                        Act(label: "Non legge il QR", status: "fail", note: "Il QR non viene letto"),
                         Act(label: "Salta", status: "skip", note: "Non eseguito"),
                     ]
                 }, onError: { message in
@@ -1004,6 +1025,13 @@ final class DiagModel: ObservableObject {
                 })
             }
         }
+    }
+
+    private func acceptQR(_ value: String) {
+        guard still("autofocus") else { return }
+        let short = value.count > 80 ? String(value.prefix(80)) + "…" : value
+        detail = short
+        settle("autofocus", "pass", "QR letto: \(short)")
     }
 
     private func startTrueDepth() {
