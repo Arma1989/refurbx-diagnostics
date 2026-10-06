@@ -2,6 +2,7 @@ import AVFoundation
 import MapKit
 import MediaPlayer
 import SwiftUI
+import UIKit
 
 private let navy = Look.navy
 private let cyan = Look.cyan
@@ -1218,24 +1219,66 @@ private struct LightBar: View {
     }
 }
 
-struct NfcTap: UIViewRepresentable {
-    let title: String
-    let probe: TagProbe
+final class NfcOpenController: UIViewController {
+    nonisolated(unsafe) private let probe: TagProbe
+    private let button = UIButton(type: .custom)
 
-    func makeUIView(context: Context) -> UIButton {
-        let button = UIButton(type: .custom)
+    init(title: String, probe: TagProbe) {
+        self.probe = probe
+        super.init(nibName: nil, bundle: nil)
         button.setTitle(title, for: .normal)
         button.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
         button.setTitleColor(UIColor(red: 0.043, green: 0.059, blue: 0.145, alpha: 1), for: .normal)
         button.backgroundColor = UIColor(red: 0.48, green: 0.84, blue: 1, alpha: 1)
         button.layer.cornerRadius = 16
-        probe.attach(button)
-        return button
+        button.layer.masksToBounds = true
+        button.accessibilityLabel = title
+        button.isUserInteractionEnabled = true
+        button.addTarget(self, action: #selector(openReader), for: .touchUpInside)
     }
 
-    func updateUIView(_ button: UIButton, context: Context) {
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let root = UIView()
+        root.backgroundColor = .clear
+        root.isUserInteractionEnabled = true
+        button.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            button.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            button.topAnchor.constraint(equalTo: root.topAnchor),
+            button.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
+        view = root
+    }
+
+    func applyTitle(_ title: String) {
+        guard button.currentTitle != title else { return }
         button.setTitle(title, for: .normal)
-        probe.attach(button)
+        button.accessibilityLabel = title
+    }
+
+    @objc nonisolated func openReader() {
+        probe.beginFromTap()
+    }
+}
+
+struct NfcTap: UIViewControllerRepresentable {
+    let title: String
+    let probe: TagProbe
+
+    func makeUIViewController(context: Context) -> NfcOpenController {
+        let controller = NfcOpenController(title: title, probe: probe)
+        controller.loadViewIfNeeded()
+        return controller
+    }
+
+    func updateUIViewController(_ controller: NfcOpenController, context: Context) {
+        controller.applyTitle(title)
     }
 }
 

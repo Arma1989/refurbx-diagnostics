@@ -1388,14 +1388,8 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
     private let lock = NSLock()
     var onResult: ((String, String) -> Void)?
     var onActive: (() -> Void)?
-    var onOpened: ((Bool) -> Void)?
 
-    func attach(_ button: UIButton) {
-        button.removeTarget(self, action: #selector(beginFromTap), for: .touchUpInside)
-        button.addTarget(self, action: #selector(beginFromTap), for: .touchUpInside)
-    }
-
-    @objc func beginFromTap() {
+    @objc nonisolated func beginFromTap() {
         lock.lock()
         if session != nil {
             lock.unlock()
@@ -1410,20 +1404,19 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
             finish("absent", "Questo iPhone non legge i tag NFC", token: token)
             return
         }
-        guard let session = NFCTagReaderSession(pollingOption: [.iso14443, .iso15693, .iso18092], delegate: self, queue: nil) else {
+        guard let opened = NFCTagReaderSession(pollingOption: [.iso14443, .iso15693, .iso18092], delegate: self, queue: nil) else {
             finish("absent", "Lettura NFC non disponibile", token: token)
             return
         }
-        session.alertMessage = "Tieni la scheda ferma sul retro, in alto."
+        opened.alertMessage = "Tieni la scheda ferma sul retro, in alto."
         lock.lock()
         if self.session != nil || token != generation {
             lock.unlock()
             return
         }
-        self.session = session
+        self.session = opened
         lock.unlock()
-        session.begin()
-        DispatchQueue.main.async { self.onOpened?(true) }
+        opened.begin()
     }
 
     func stop() {
@@ -1435,7 +1428,6 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
         lock.unlock()
         onResult = nil
         onActive = nil
-        onOpened = nil
         current?.invalidate()
     }
 
@@ -1501,13 +1493,6 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
             return
         }
         let text = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        let missing = code == .readerErrorSecurityViolation
-            || text.localizedCaseInsensitiveContains("entitlement")
-            || text.localizedCaseInsensitiveContains("missing required")
-        if missing {
-            finish("closed", "Manca il permesso NFC nella build firmata. Serve NFC Tag Reading in formato TAG, senza NDEF. Salvalo su developer.apple.com e installa questa build.", token: token)
-            return
-        }
         finish("closed", text.isEmpty ? "La finestra NFC si è chiusa. Premi Apri lettore tag." : text, token: token)
     }
 

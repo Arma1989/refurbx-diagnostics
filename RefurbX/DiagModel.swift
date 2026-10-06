@@ -728,11 +728,6 @@ final class DiagModel: ObservableObject {
     }
 
     private func armNfc() {
-        tags.onOpened = { [weak self] _ in
-            guard let self, self.still("nfc") else { return }
-            self.hint = "Si apre il lettore tag di Apple, dal basso. Tieni la scheda ferma sul retro, in alto."
-            self.detail = "Lettore tag in apertura"
-        }
         tags.onActive = { [weak self] in
             guard let self, self.still("nfc") else { return }
             self.detail = "Lettore tag aperto"
