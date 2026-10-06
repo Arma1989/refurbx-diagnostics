@@ -105,7 +105,14 @@ final class DiagModel: ObservableObject {
     private var volumeTimer: Timer?
     private var volumeObservation: NSKeyValueObservation?
     private var volumeHost: MPVolumeView?
-    private var volumeArmed = true
+    private weak var volumeCatcher: MPVolumeView?
+    private var volumeArmed = false
+    private var volumeWantsUp = false
+    private var volumeDidSet = false
+    private var volumeStable = 0
+    private var volumeWait = 0
+    private var volumeLast: Float = -1
+    private var volumeToken = 0
     private var muteSound: SystemSoundID = 0
     private var muteToken = 0
     private var muteBaseline: Bool?
@@ -878,105 +885,173 @@ final class DiagModel: ObservableObject {
     }
 
     private func watchVolume(up: Bool) {
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-        try? session.setActive(true)
+        activateVolumeSession()
+        volumeTimer?.invalidate()
+        volumeTimer = nil
+        volumeObservation?.invalidate()
+        volumeObservation = nil
+        volumeToken += 1
+        let token = volumeToken
+        volumeWantsUp = up
+        volumeArmed = false
+        volumeDidSet = false
+        volumeStable = 0
+        volumeWait = 0
+        volumeLast = -1
+        volumePrevious = -1
         keyOk = false
-        volumeArmed = true
-        volumePrevious = session.outputVolume
-        if up && volumePrevious > 0.95 {
-            hint = "Il volume è già al massimo. Premi volume giù una volta, poi di nuovo volume su. Compare la spunta appena il tasto risponde."
-        } else if !up && volumePrevious < 0.05 {
-            hint = "Il volume è già al minimo. Premi volume su una volta, poi di nuovo volume giù. Compare la spunta appena il tasto risponde."
-        } else {
-            hint = up
-                ? "Premi volume su. Compare la spunta appena il tasto risponde."
-                : "Premi volume giù. Compare la spunta appena il tasto risponde."
-        }
+        hint = up
+            ? "Premi volume su. Compare la spunta appena il tasto risponde."
+            : "Premi volume giù. Compare la spunta appena il tasto risponde."
         detail = up ? "In attesa di volume +" : "In attesa di volume −"
         actions = [
             Act(label: "Non risponde", status: "fail", note: up ? "Volume su fermo" : "Volume giù fermo"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
-        volumeObservation = session.observe(\.outputVolume, options: [.new, .old]) { [weak self] _, change in
-            let now = change.newValue ?? session.outputVolume
-            let previous = change.oldValue ?? -1
+        volumeObservation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in
-                self?.noteVolume(up: up, previous: previous, now: now)
+                guard let self, self.volumeToken == token else { return }
+                self.noteVolume(AVAudioSession.sharedInstance().outputVolume)
             }
         }
         let timer = Timer(timeInterval: 0.12, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.volumeArmed else { return }
-                let sessionNow = session.outputVolume
-                let sliderNow = self.volumeSlider()?.value
-                self.noteVolume(up: up, previous: self.volumePrevious, now: sessionNow)
-                if let sliderNow, abs(sliderNow - sessionNow) > 0.004 {
-                    self.noteVolume(up: up, previous: self.volumePrevious, now: sliderNow)
-                }
-                self.volumePrevious = sliderNow ?? sessionNow
+                guard let self, self.volumeToken == token else { return }
+                self.pollVolume()
             }
         }
         volumeTimer = timer
         RunLoop.main.add(timer, forMode: .common)
         mountVolumeHost()
-        if up {
-            later(0.35) { self.makeRoomForVolumeUp() }
+        later(0.05) {
+            guard self.volumeToken == token else { return }
+            self.pollVolume()
+        }
+    }
+
+    func holdVolumeView(_ view: MPVolumeView) {
+        guard currentId == "volume_up" || currentId == "volume_down" else { return }
+        view.isHidden = false
+        view.alpha = 0.02
+        view.layoutIfNeeded()
+        volumeCatcher = view
+        guard !volumeArmed, !volumeDidSet, !keyOk, !volumeSliders().isEmpty else { return }
+        pollVolume()
+    }
+
+    private func activateVolumeSession() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try session.setActive(true)
+        } catch {
+            try? session.setActive(false, options: [.notifyOthersOnDeactivation])
+            try? session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try? session.setActive(true)
         }
     }
 
     private func mountVolumeHost() {
         volumeHost?.removeFromSuperview()
-        let host = MPVolumeView(frame: CGRect(x: 0, y: 0, width: 180, height: 32))
+        let host = MPVolumeView(frame: CGRect(x: 16, y: 16, width: 200, height: 36))
         host.isHidden = false
-        host.alpha = 0.02
-        let window = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow }
+        host.alpha = 1
+        host.backgroundColor = .clear
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let windows = scenes.flatMap(\.windows)
+        let window = windows.first(where: \.isKeyWindow)
+            ?? windows.first(where: { $0.windowScene?.activationState == .foregroundActive })
+            ?? windows.first
         window?.addSubview(host)
+        host.layoutIfNeeded()
+        host.alpha = 0.02
+        host.isUserInteractionEnabled = false
         volumeHost = host
     }
 
-    private func volumeSlider() -> UISlider? {
-        volumeHost?.subviews.compactMap { $0 as? UISlider }.first
+    private func volumeSliders() -> [UISlider] {
+        var found: [UISlider] = []
+        for host in [volumeCatcher, volumeHost].compactMap({ $0 }) {
+            let direct = host.subviews.compactMap { $0 as? UISlider }
+            if !direct.isEmpty {
+                found.append(contentsOf: direct)
+                continue
+            }
+            for view in host.subviews {
+                found.append(contentsOf: view.subviews.compactMap { $0 as? UISlider })
+            }
+        }
+        return found
     }
 
-    private func makeRoomForVolumeUp() {
-        guard still("volume_up"), !keyOk else { return }
-        guard let slider = volumeSlider() else { return }
-        let current = max(slider.value, volumePrevious)
-        guard current >= 0.88 else { return }
+    private func applyVolume(_ target: Float) {
         volumeArmed = false
-        let lowered = max(0.2, current - 0.18)
-        slider.setValue(lowered, animated: false)
-        slider.sendActions(for: .valueChanged)
-        volumePrevious = lowered
-        hint = "Il volume era alto: l'ho abbassato un poco. Premi volume su. La spunta compare appena sale."
-        later(0.2) { self.finishVolumeArm(0) }
+        for slider in volumeSliders() {
+            slider.setValue(target, animated: false)
+            slider.sendActions(for: .valueChanged)
+        }
     }
 
-    private func finishVolumeArm(_ tries: Int) {
-        guard still("volume_up"), !keyOk else {
-            volumeArmed = true
-            return
-        }
+    private func pollVolume() {
+        let id = volumeWantsUp ? "volume_up" : "volume_down"
+        guard still(id), !keyOk else { return }
         let now = AVAudioSession.sharedInstance().outputVolume
-        let slider = volumeSlider()?.value ?? now
-        if now > slider + 0.05, tries < 10 {
-            later(0.15) { self.finishVolumeArm(tries + 1) }
+        if volumeArmed {
+            noteVolume(now)
             return
         }
+        let target: Float = volumeWantsUp ? 0.3 : 0.7
+        if !volumeDidSet {
+            let sliders = volumeSliders()
+            guard !sliders.isEmpty else {
+                volumeWait += 1
+                if volumeWait >= 16 {
+                    armVolume(now)
+                }
+                return
+            }
+            applyVolume(target)
+            volumeDidSet = true
+            volumeWait = 0
+            volumeStable = 0
+            volumeLast = -1
+            return
+        }
+        if volumeLast >= 0, abs(now - volumeLast) < 0.008 {
+            volumeStable += 1
+        } else {
+            volumeStable = 0
+        }
+        volumeLast = now
+        volumeWait += 1
+        let close = abs(now - target) <= 0.06
+        if close && volumeStable >= 2 {
+            armVolume(now)
+            return
+        }
+        if volumeSliders().isEmpty && volumeStable >= 2 {
+            armVolume(now)
+            return
+        }
+        if volumeWait >= 12 && volumeStable >= 2 {
+            armVolume(now)
+        }
+    }
+
+    private func armVolume(_ now: Float) {
+        let id = volumeWantsUp ? "volume_up" : "volume_down"
+        guard still(id), !keyOk, !volumeArmed else { return }
         volumePrevious = now
         volumeArmed = true
     }
 
-    private func noteVolume(up: Bool, previous: Float, now: Float) {
-        let id = up ? "volume_up" : "volume_down"
-        guard volumeArmed, still(id), !keyOk, previous >= 0 else { return }
-        let hit = up ? now > previous + 0.004 : now < previous - 0.004
+    private func noteVolume(_ now: Float) {
+        let id = volumeWantsUp ? "volume_up" : "volume_down"
+        guard volumeArmed, still(id), !keyOk, volumePrevious >= 0 else { return }
+        let delta = now - volumePrevious
+        let hit = volumeWantsUp ? delta >= 0.02 : delta <= -0.02
         guard hit else { return }
-        markKey(id, note: up ? "Volume su ricevuto" : "Volume giù ricevuto")
+        markKey(id, note: volumeWantsUp ? "Volume su ricevuto" : "Volume giù ricevuto")
     }
 
     private func markKey(_ id: String, note: String) {
@@ -1744,6 +1819,11 @@ final class DiagModel: ObservableObject {
         volumeObservation = nil
         volumeHost?.removeFromSuperview()
         volumeHost = nil
+        volumeCatcher = nil
+        volumeArmed = false
+        volumePrevious = -1
+        volumeDidSet = false
+        volumeToken += 1
         muteToken += 1
         muteBaseline = nil
         muteReads = 0

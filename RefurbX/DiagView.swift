@@ -328,7 +328,7 @@ private struct RunScreen: View {
         } else if model.currentId == "volume_up" || model.currentId == "volume_down" || model.currentId == "power_button" || model.currentId == "mute_switch" {
             ZStack {
                 if model.currentId == "volume_up" || model.currentId == "volume_down" {
-                    VolumeCatcher()
+                    VolumeCatcher { model.holdVolumeView($0) }
                         .frame(width: 200, height: 36)
                 }
                 KeyMark(
@@ -1283,13 +1283,28 @@ struct NfcTap: UIViewControllerRepresentable {
 }
 
 private struct VolumeCatcher: UIViewRepresentable {
+    var onReady: (MPVolumeView) -> Void
+
     func makeUIView(context: Context) -> MPVolumeView {
         let view = MPVolumeView(frame: CGRect(x: 0, y: 0, width: 200, height: 36))
+        view.isHidden = false
         view.alpha = 0.02
+        view.backgroundColor = .clear
         return view
     }
 
-    func updateUIView(_ uiView: MPVolumeView, context: Context) {}
+    func updateUIView(_ uiView: MPVolumeView, context: Context) {
+        uiView.isHidden = false
+        if uiView.subviews.compactMap({ $0 as? UISlider }).isEmpty {
+            uiView.alpha = 1
+            uiView.layoutIfNeeded()
+        }
+        uiView.alpha = 0.02
+        let ready = onReady
+        Task { @MainActor in
+            ready(uiView)
+        }
+    }
 }
 
 private struct AccelPad: View {
