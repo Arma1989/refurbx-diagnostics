@@ -1535,7 +1535,7 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
             finish("absent", "Questo iPhone non legge i tag NFC", token: token)
             return
         }
-        guard let opened = NFCTagReaderSession(pollingOption: [.iso14443, .iso15693, .iso18092], delegate: self, queue: nil) else {
+        guard let opened = NFCTagReaderSession(pollingOption: [.iso14443, .iso15693], delegate: self, queue: nil) else {
             finish("absent", "Lettura NFC non disponibile", token: token)
             return
         }
