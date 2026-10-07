@@ -56,12 +56,12 @@ private enum GuideCopy {
         case "headphones": return "Collega le cuffie se le hai. Se non le hai, salta."
         case "camera_back": return "Si apre la fotocamera dietro. Conferma solo se l'immagine è nitida."
         case "camera_front": return "Si apre la fotocamera davanti. Il volto deve essere dritto, in verticale."
-        case "autofocus": return "Inquadra un codice QR con la camera dietro. Se lo legge, il test è ok."
+        case "autofocus": return "Inquadra un codice QR con la camera dietro. Appena lo vede, compare il riquadro e si passa avanti."
         case "flash": return "Il flash si accende. Conferma solo se lo vedi acceso."
         case "truedepth": return "In alto a destra vedi la fotocamera, come in una videochiamata. Al centro i puntini bianchi sono il volto TrueDepth: girano con la testa."
         case "lidar": return "La vista a infrarossi resta aperta. Avvicina la mano: solo il vicino diventa più scuro."
         case "proximity": return "Copri il sensore in alto, vicino alla capsula."
-        case "light": return "Metti una luce sul sensore davanti, in alto, poi toglila. La percentuale deve scendere subito."
+        case "light": return "Metti una luce sul sensore davanti, in alto. La barra sale. Toglila e scende subito."
         case "accelerometer": return "Inclina il telefono verso i quattro bordi, come la pallina."
         case "gyroscope": return "Tienilo fermo, poi inclinalo di lato, avanti e giralo. I tre assi devono muoversi."
         case "compass": return "Tienilo in piano e fai un giro completo. Si accendono 8 punti. Finché manca un punto, il test non va avanti."
@@ -73,9 +73,9 @@ private enum GuideCopy {
         case "power_button": return "Premi il tasto di accensione, poi riapri lo schermo."
         case "mute_switch":
             if HardwareFit.usesActionButton {
-                return "Premi il tasto Azione. Lo stato in grande diventa Suono o Silenzioso. La spunta compare solo se cambia davvero."
+                return "Premi il tasto Azione. In grande compare Suono o Silenzioso. L'app non emette suoni. La spunta arriva solo quando diventa silenzioso."
             }
-            return "Sposta l'interruttore. Lo stato in grande diventa Suono o Silenzioso. La spunta compare solo se cambia davvero."
+            return "Sposta l'interruttore. In grande compare Suono o Silenzioso. L'app non emette suoni. La spunta arriva solo quando diventa silenzioso."
         case "charging": return "Collega il cavo. Il test passa quando il sistema vede la carica."
         case "wireless": return "Stacca il cavo e appoggia il telefono sul pad. Passa solo se, da staccato, torna in carica."
         case "biometrics": return "Usa il volto o l'impronta, se il telefono la chiede."
@@ -90,7 +90,7 @@ private struct DemoReel: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
             let loop = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.8) / 2.8
-            PhoneChrome {
+            PhoneChrome(testId: testId, loop: loop) {
                 DemoScene(testId: testId, loop: loop)
             }
         }
@@ -98,6 +98,8 @@ private struct DemoReel: View {
 }
 
 private struct PhoneChrome<Content: View>: View {
+    var testId: String = ""
+    var loop: Double = 0
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -129,7 +131,60 @@ private struct PhoneChrome<Content: View>: View {
                 .overlay(Circle().fill(Color.white.opacity(0.18)).frame(width: 8, height: 8).offset(x: 22))
                 .padding(.top, 16)
         }
+        .overlay {
+            if testId == "mute_switch" {
+                MuteSide(loop: loop)
+            }
+        }
         .shadow(color: cyan.opacity(0.28), radius: 32, y: 16)
+    }
+}
+
+private struct MuteSide: View {
+    let loop: Double
+
+    var body: some View {
+        Group {
+            if HardwareFit.usesActionButton {
+                actionColumn
+            } else {
+                ringerColumn
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .offset(x: -6, y: 62)
+        .allowsHitTesting(false)
+    }
+
+    private var actionColumn: some View {
+        let hot = loop > 0.08 && loop < 0.34
+        return VStack(spacing: 16) {
+            Capsule()
+                .fill(hot ? cyan : Color(white: 0.94))
+                .frame(width: hot ? 18 : 14, height: 44)
+                .shadow(color: cyan.opacity(hot ? 1 : 0.35), radius: hot ? 14 : 3)
+                .overlay(Capsule().stroke(Color.white.opacity(hot ? 1 : 0.55), lineWidth: 1.5))
+            Capsule()
+                .fill(Color.white.opacity(0.5))
+                .frame(width: 8, height: 28)
+            Capsule()
+                .fill(Color.white.opacity(0.5))
+                .frame(width: 8, height: 28)
+        }
+    }
+
+    private var ringerColumn: some View {
+        let down = loop > 0.42
+        return ZStack {
+            Capsule()
+                .fill(Color.white.opacity(0.28))
+                .frame(width: 14, height: 48)
+            Capsule()
+                .fill(down ? cyan : Color.white.opacity(0.95))
+                .frame(width: 18, height: 22)
+                .shadow(color: cyan.opacity(down ? 0.9 : 0), radius: 8)
+                .offset(y: down ? 11 : -11)
+        }
     }
 }
 
@@ -174,8 +229,10 @@ private struct DemoScene: View {
                 pinPulse
             case "bluetooth", "nfc", "network":
                 radioWaves
-            case "volume_up", "volume_down", "power_button", "mute_switch":
+            case "volume_up", "volume_down", "power_button":
                 sideButton
+            case "mute_switch":
+                Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
             case "charging":
                 cable
             case "wireless":
@@ -365,23 +422,70 @@ private struct DemoScene: View {
     }
 
     private var tiltBall: some View {
-        let angle = loop * .pi * 2
-        return Circle()
-            .fill(cyan)
-            .frame(width: 26, height: 26)
-            .overlay(Circle().stroke(.white, lineWidth: 2))
-            .offset(x: CGFloat(cos(angle) * 42), y: CGFloat(sin(angle) * 70))
+        let phase = loop * 4
+        let step = Int(phase) % 4
+        let along = phase - Double(Int(phase))
+        let eased = along * along * (3 - 2 * along)
+        let spots: [(CGFloat, CGFloat)] = [(62, 0), (0, 118), (-62, 0), (0, -118)]
+        let here = spots[step]
+        let next = spots[(step + 1) % 4]
+        let x = here.0 + (next.0 - here.0) * eased
+        let y = here.1 + (next.1 - here.1) * eased
+        let reached = along > 0.62
+        return ZStack {
+            Capsule()
+                .fill(step == 3 && reached ? Look.pass : Color.white.opacity(0.2))
+                .frame(width: 86, height: 8)
+                .offset(y: -132)
+            Capsule()
+                .fill(step == 1 && reached ? Look.pass : Color.white.opacity(0.2))
+                .frame(width: 86, height: 8)
+                .offset(y: 132)
+            Capsule()
+                .fill(step == 2 && reached ? Look.pass : Color.white.opacity(0.2))
+                .frame(width: 8, height: 150)
+                .offset(x: -72)
+            Capsule()
+                .fill(step == 0 && reached ? Look.pass : Color.white.opacity(0.2))
+                .frame(width: 8, height: 150)
+                .offset(x: 72)
+            Circle()
+                .fill(cyan)
+                .frame(width: 28, height: 28)
+                .overlay(Circle().stroke(.white, lineWidth: 2))
+                .offset(x: x, y: y)
+        }
+        .frame(width: 168, height: 300)
     }
 
     private var gyroDemo: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .stroke(cyan, lineWidth: 2)
-            .frame(width: 48, height: 82)
-            .overlay(alignment: .top) {
-                Capsule().fill(Color.white.opacity(0.8)).frame(width: 18, height: 4).padding(.top, 8)
+        let roll = sin(loop * .pi * 2) * 20
+        let pitch = cos(loop * .pi * 2) * 14
+        let side: CGFloat = 150
+        let shift = CGFloat(pitch / 35) * side * 0.28
+        return ZStack {
+            Circle().stroke(Color.white.opacity(0.28), lineWidth: 2).frame(width: side, height: side)
+            ZStack {
+                VStack(spacing: 0) {
+                    Color(red: 0.16, green: 0.40, blue: 0.72)
+                    Color(red: 0.34, green: 0.24, blue: 0.14)
+                }
+                .frame(width: side * 1.7, height: side * 1.7)
+                .offset(y: shift)
+                Capsule().fill(Color.white.opacity(0.9)).frame(width: side * 0.46, height: 2)
+                Capsule().fill(Color.white.opacity(0.45)).frame(width: side * 0.22, height: 2).offset(y: -side * 0.12)
+                Capsule().fill(Color.white.opacity(0.45)).frame(width: side * 0.22, height: 2).offset(y: side * 0.12)
             }
-            .rotation3DEffect(.degrees(sin(loop * .pi * 2) * 32), axis: (x: 1, y: 0, z: 0))
-            .rotation3DEffect(.degrees(cos(loop * .pi * 2) * 24), axis: (x: 0, y: 1, z: 0))
+            .rotationEffect(.degrees(-roll))
+            .frame(width: side, height: side)
+            .clipShape(Circle())
+            HStack(spacing: side * 0.07) {
+                Capsule().fill(cyan).frame(width: side * 0.2, height: 3)
+                Circle().stroke(cyan, lineWidth: 2).frame(width: 10, height: 10)
+                Capsule().fill(cyan).frame(width: side * 0.2, height: 3)
+            }
+        }
+        .frame(width: side, height: side)
     }
 
     private var compassDemo: some View {
@@ -429,7 +533,7 @@ private struct DemoScene: View {
     }
 
     private var sideButton: some View {
-        let up = testId == "volume_up" || testId == "mute_switch"
+        let up = testId == "volume_up"
         return HStack {
             Spacer()
             Capsule()
@@ -485,14 +589,31 @@ private struct DemoScene: View {
     }
 
     private var lightMeter: some View {
-        VStack {
-            Spacer()
-            Capsule()
-                .fill(cyan)
-                .frame(width: 120, height: 14)
-                .scaleEffect(x: 0.3 + loop * 0.7, y: 1, anchor: .leading)
-                .padding(28)
+        let level = lightDrop(loop)
+        return VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Capsule()
+                    .fill(Color.white.opacity(0.92))
+                    .frame(width: 32, height: 6)
+                Capsule()
+                    .fill(cyan)
+                    .frame(width: 14 + CGFloat(level) * 92, height: 12)
+                    .shadow(color: cyan.opacity(0.55), radius: 6)
+            }
+            .padding(.top, 36)
+            Text("\(Int((level * 100).rounded()))%")
+                .font(.system(size: 15, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(cyan)
+            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func lightDrop(_ loop: Double) -> Double {
+        if loop < 0.34 { return 0.12 + (loop / 0.34) * 0.84 }
+        if loop < 0.5 { return 0.96 }
+        return max(0.08, 0.96 - (loop - 0.5) / 0.4 * 0.88)
     }
 
     private var forceDemo: some View {

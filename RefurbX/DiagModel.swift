@@ -21,6 +21,8 @@ final class DiagModel: ObservableObject {
     @Published var detail = ""
     @Published var index = -1
     @Published var showCamera = false
+    @Published var qrCaught = false
+    @Published var qrBox: CGRect = .zero
     @Published var actions: [Act] = []
     @Published var outcomes: [Outcome] = []
     @Published var fingers = 0
@@ -88,6 +90,7 @@ final class DiagModel: ObservableObject {
     private let tone = TonePlayer()
     private let mic = MicProbe()
     private let motion = MotionProbe()
+    private let ringer = RingerWatch()
     private let place = PlaceProbe()
     private let radio = RadioProbe()
     private let depth = DepthProbe()
@@ -113,11 +116,7 @@ final class DiagModel: ObservableObject {
     private var volumeWait = 0
     private var volumeLast: Float = -1
     private var volumeToken = 0
-    private var muteSound: SystemSoundID = 0
     private var muteToken = 0
-    private var muteBaseline: Bool?
-    private var muteReads = 0
-    private var muteStreak = 0
     private var lightWarm = 0
     private var lightFloor = 0.0
     private var lightCeil = 0.0
@@ -136,6 +135,7 @@ final class DiagModel: ObservableObject {
     private var micLabel = "Microfono"
     private var micToken = 0
     private var faceArmed = false
+    private var qrOnce = false
     private var depthFrames = 0
     private var depthArmed = false
     private var depthLive = false
@@ -305,8 +305,8 @@ final class DiagModel: ObservableObject {
         guard currentId == "camera_back" || currentId == "autofocus" else { return }
         if !openedLenses.contains(lensName) { openedLenses.append(lensName) }
         detail = openedLenses.joined(separator: " · ")
-        camera.start(front: false, lens: next, scanQR: currentId == "autofocus", onFocus: {}, onCode: { value in
-            self.acceptQR(value)
+        camera.start(front: false, lens: next, scanQR: currentId == "autofocus", onFocus: {}, onCode: { value, box in
+            self.acceptQR(value, box)
         }, onRunning: {}, onError: { message in
             self.detail = message
         })
@@ -349,7 +349,7 @@ final class DiagModel: ObservableObject {
         let cameraWasOpen = showCamera
         let leaveAtOnce = id == "autofocus"
         actions = []
-        cleanup(releaseCamera: !cameraWasOpen || leaveAtOnce)
+        cleanup(releaseCamera: cameraWasOpen && !leaveAtOnce)
         let proceed = { [weak self] in
             guard let self else { return }
             guard self.index + 1 < self.plan.count else {
@@ -366,9 +366,9 @@ final class DiagModel: ObservableObject {
             self.enter()
         }
         if leaveAtOnce {
+            DispatchQueue.main.async { proceed() }
             camera.setTorch(false) { _ in }
             camera.stop()
-            DispatchQueue.main.async { proceed() }
             return
         }
         guard cameraWasOpen else {
@@ -487,6 +487,9 @@ final class DiagModel: ObservableObject {
         detail = ""
         actions = []
         showCamera = false
+        qrCaught = false
+        qrBox = .zero
+        qrOnce = false
         fingers = 0
         proximityLit = false
         depthShot = nil
@@ -780,11 +783,11 @@ final class DiagModel: ObservableObject {
         let started = motion.gravity { [weak self] x, y in
             guard let self, self.still("accelerometer") else { return }
             self.dotX = CGFloat(max(-1, min(1, x)))
-            self.dotY = CGFloat(max(-1, min(1, y)))
+            self.dotY = CGFloat(max(-1, min(1, -y)))
             if x < -0.55 { self.edgeLeft = true }
             if x > 0.55 { self.edgeRight = true }
-            if y < -0.55 { self.edgeTop = true }
-            if y > 0.55 { self.edgeBottom = true }
+            if y > 0.55 { self.edgeTop = true }
+            if y < -0.55 { self.edgeBottom = true }
             let done = [self.edgeLeft, self.edgeRight, self.edgeTop, self.edgeBottom].filter { $0 }.count
             self.detail = "\(done) di 4 lati"
             if done == 4 {
@@ -797,34 +800,49 @@ final class DiagModel: ObservableObject {
     }
 
     private func startGyro() {
-        hint = "Tienilo fermo un attimo, poi ruotalo di lato, avanti e intorno a te."
+        hint = "Il cerchio segue il telefono. Tienilo fermo un secondo, inclinalo di lato e in avanti, poi giralo. Si accendono le quattro righe."
         actions = [
             Act(label: "Non ruota", status: "fail", note: "Il giroscopio non cambia"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
-        var origin: (Double, Double, Double)?
-        var stillSamples = 0
-        let started = motion.attitude { [weak self] roll, pitch, yaw, rate in
+        var originRoll = 0.0
+        var originPitch = 0.0
+        var haveOrigin = false
+        var calmSince: TimeInterval?
+        var turned = 0.0
+        var lastTime: TimeInterval?
+        let started = motion.attitude { [weak self] roll, pitch, spin, verticalRate, time in
             guard let self, self.still("gyroscope") else { return }
-            self.gyroRollDeg = roll * 180 / .pi
-            self.gyroPitchDeg = pitch * 180 / .pi
-            self.gyroYawDeg = yaw * 180 / .pi
+            if !haveOrigin {
+                haveOrigin = true
+                originRoll = roll
+                originPitch = pitch
+            }
+            let rollShown = ((roll - originRoll) * 180 / .pi).rounded()
+            let pitchShown = ((pitch - originPitch) * 180 / .pi).rounded()
+            self.gyroRollDeg = rollShown
+            self.gyroPitchDeg = pitchShown
+            if let previous = lastTime {
+                let dt = min(0.2, max(0, time - previous))
+                turned += verticalRate * dt
+            }
+            lastTime = time
+            let yawShown = (turned * 180 / .pi).rounded()
+            self.gyroYawDeg = yawShown
+            let stillLimit = calmSince == nil ? 0.42 : 0.65
+            if spin < stillLimit {
+                if calmSince == nil { calmSince = time }
+                if let began = calmSince, time - began >= 1 {
+                    self.gyroRest = true
+                }
+            } else {
+                calmSince = nil
+            }
+            if abs(rollShown) >= 25 { self.gyroTilt = true }
+            if abs(pitchShown) >= 25 { self.gyroPitch = true }
+            if abs(yawShown) >= 35 { self.gyroYaw = true }
             let done = [self.gyroRest, self.gyroTilt, self.gyroPitch, self.gyroYaw].filter { $0 }.count
             self.detail = "\(done) di 4"
-            if origin == nil {
-                origin = (roll, pitch, yaw)
-                return
-            }
-            if rate < 0.25 {
-                stillSamples += 1
-                if stillSamples > 8 { self.gyroRest = true }
-            } else {
-                stillSamples = 0
-            }
-            let base = origin ?? (0, 0, 0)
-            if abs(roll - base.0) > 0.45 { self.gyroTilt = true }
-            if abs(pitch - base.1) > 0.45 { self.gyroPitch = true }
-            if Self.angleGap(yaw, base.2) > 0.6 { self.gyroYaw = true }
             if self.gyroRest && self.gyroTilt && self.gyroPitch && self.gyroYaw {
                 self.settle("gyroscope", "pass", "Fermo, rollio, beccheggio e imbardata rilevati")
             }
@@ -1085,122 +1103,31 @@ final class DiagModel: ObservableObject {
             return
         }
         keyOk = false
-        muteBaseline = nil
-        muteReads = 0
-        muteStreak = 0
         muteToken += 1
+        let token = muteToken
+        var sawSound = false
         let action = HardwareFit.usesActionButton
         hint = action
-            ? "Premi il tasto Azione per passare da suono a silenzioso. La spunta compare solo quando lo stato cambia."
-            : "Sposta l'interruttore per passare da suono a silenzioso. La spunta compare solo quando lo stato cambia."
+            ? "Premi il tasto Azione finché in grande compare Silenzioso. L'app non emette suoni."
+            : "Sposta l'interruttore finché in grande compare Silenzioso. L'app non emette suoni."
         detail = "In attesa"
         actions = [
-            Act(label: "Non commuta", status: "fail", note: action ? "Il tasto Azione non cambia il silenzioso" : "L'interruttore non cambia il silenzioso"),
+            Act(label: "Non commuta", status: "fail", note: action ? "Il tasto Azione non mette in silenzioso" : "L'interruttore non mette in silenzioso"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
-        armMuteSample()
-    }
-
-    private func armMuteSample() {
-        guard still("mute_switch"), !keyOk else { return }
-        let sound = prepareMuteSound()
-        guard sound != 0 else {
-            hint = "Non riesco a sentire il silenzioso. Segna che non commuta, oppure salta."
-            return
-        }
-        let token = muteToken
-        let started = Date()
-        AudioServicesPlaySystemSoundWithCompletion(sound) {
-            let elapsed = Date().timeIntervalSince(started)
-            DispatchQueue.main.async {
-                guard token == self.muteToken else { return }
-                self.noteMute(elapsed: elapsed)
+        let ok = ringer.start { [weak self] silent in
+            guard let self, self.muteToken == token, self.still("mute_switch"), !self.keyOk else { return }
+            self.detail = silent ? "Silenzioso" : "Suono"
+            if !silent {
+                sawSound = true
+                return
             }
+            guard sawSound else { return }
+            self.markKey("mute_switch", note: "Passato in silenzioso")
         }
-    }
-
-    private func noteMute(elapsed: TimeInterval) {
-        guard still("mute_switch"), !keyOk else { return }
-        let silent = elapsed < 0.12
-        let label = silent ? "Silenzioso" : "Suono"
-        muteReads += 1
-        if muteReads == 1 {
-            detail = "In ascolto"
-            later(0.25) { self.armMuteSample() }
-            return
+        if !ok {
+            hint = "Non riesco a leggere il silenzioso. Segna che non commuta, oppure salta."
         }
-        if muteBaseline == nil {
-            muteBaseline = silent
-            muteStreak = 0
-            detail = label
-            later(0.25) { self.armMuteSample() }
-            return
-        }
-        detail = label
-        guard muteBaseline != silent else {
-            muteStreak = 0
-            later(0.25) { self.armMuteSample() }
-            return
-        }
-        muteStreak += 1
-        guard muteStreak >= 2 else {
-            later(0.2) { self.armMuteSample() }
-            return
-        }
-        markKey("mute_switch", note: silent ? "Passato in silenzioso" : "Passato a suono")
-    }
-
-    private func prepareMuteSound() -> SystemSoundID {
-        if muteSound != 0 { return muteSound }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("refurbx-mute.wav")
-        let rate = 44100
-        let count = rate * 3 / 10
-        let tick = rate / 12
-        var samples = [Int16](repeating: 0, count: count)
-        var phase = 0.0
-        for index in 0..<count {
-            phase += 2 * Double.pi * 880 / Double(rate)
-            let gain = index < tick ? 4800.0 : 48.0
-            samples[index] = Int16(sin(phase) * gain)
-        }
-        do {
-            try Self.muteWav(samples: samples, rate: rate).write(to: url)
-        } catch {
-            return 0
-        }
-        var id: SystemSoundID = 0
-        guard AudioServicesCreateSystemSoundID(url as CFURL, &id) == kAudioServicesNoError, id != 0 else { return 0 }
-        muteSound = id
-        return id
-    }
-
-    private static func muteWav(samples: [Int16], rate: Int) -> Data {
-        let dataSize = samples.count * 2
-        var data = Data()
-        func append(_ string: String) { data.append(contentsOf: string.utf8) }
-        func append16(_ value: UInt16) {
-            var little = value.littleEndian
-            withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
-        }
-        func append32(_ value: UInt32) {
-            var little = value.littleEndian
-            withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
-        }
-        append("RIFF")
-        append32(UInt32(36 + dataSize))
-        append("WAVE")
-        append("fmt ")
-        append32(16)
-        append16(1)
-        append16(1)
-        append32(UInt32(rate))
-        append32(UInt32(rate * 2))
-        append16(2)
-        append16(16)
-        append("data")
-        append32(UInt32(dataSize))
-        samples.withUnsafeBytes { data.append(contentsOf: $0) }
-        return data
     }
 
     private func watchCharge() {
@@ -1420,6 +1347,9 @@ final class DiagModel: ObservableObject {
             return
         }
         hint = "Apro la fotocamera dietro. Inquadra un codice QR."
+        qrOnce = false
+        qrCaught = false
+        qrBox = .zero
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         AVCaptureDevice.requestAccess(for: .video) { granted in
             DispatchQueue.main.async {
@@ -1429,8 +1359,8 @@ final class DiagModel: ObservableObject {
                     return
                 }
                 self.showCamera = true
-                self.camera.start(front: false, scanQR: true, onFocus: {}, onCode: { value in
-                    self.acceptQR(value)
+                self.camera.start(front: false, scanQR: true, onFocus: {}, onCode: { value, box in
+                    self.acceptQR(value, box)
                 }, onRunning: {
                     guard self.still("autofocus") else { return }
                     self.hint = "Inquadra un codice QR. Se lo legge, il test è ok."
@@ -1446,11 +1376,18 @@ final class DiagModel: ObservableObject {
         }
     }
 
-    private func acceptQR(_ value: String) {
-        guard still("autofocus") else { return }
+    private func acceptQR(_ value: String, _ box: CGRect) {
+        guard still("autofocus"), !qrOnce else { return }
+        qrOnce = true
         let short = value.count > 80 ? String(value.prefix(80)) + "…" : value
-        detail = short
-        settle("autofocus", "pass", "QR letto: \(short)")
+        qrBox = box.integral
+        qrCaught = true
+        detail = "QR letto"
+        hint = "QR letto"
+        later(0.28) { [weak self] in
+            guard let self, self.still("autofocus") else { return }
+            self.settle("autofocus", "pass", "QR letto: \(short)")
+        }
     }
 
     private func startTrueDepth() {
@@ -1530,7 +1467,7 @@ final class DiagModel: ObservableObject {
         lightUsesFrames = false
         showCamera = false
         lightLevel = 0.25
-        hint = "Metti una luce sul sensore davanti, in alto vicino alla capsula, poi toglila. La percentuale deve scendere subito. Non è la fotocamera dietro."
+        hint = "Metti una luce sul sensore davanti, in alto. La barra sale. Toglila: la barra scende subito. Non è la fotocamera dietro."
         detail = "Luce davanti"
         actions = [
             Act(label: "Si è abbassata", status: "pass", note: "La luce davanti è scesa togliendo la sorgente"),
@@ -1561,28 +1498,29 @@ final class DiagModel: ObservableObject {
     }
 
     private func noteAmbient(_ raw: Double) {
-        guard raw.isFinite, raw >= 0 else { return }
+        guard raw.isFinite, raw > 0 else { return }
         lightFrames += 1
-        if lightWarm < 5 {
-            lightBase = lightWarm == 0 ? max(raw, 0.000_1) : (lightBase * 0.6 + raw * 0.4)
+        if lightWarm < 6 {
+            lightBase = lightWarm == 0 ? raw : (lightBase * 0.65 + raw * 0.35)
             lightWarm += 1
-            lightPeak = max(lightBase * 1.8, raw)
-            let opening = min(1, raw / max(lightPeak, 0.000_1))
-            lightLevel = opening
-            detail = "Luce davanti \(Int((opening * 100).rounded()))%"
+            lightLevel = 0.16
+            detail = "Luce davanti 16%"
             return
         }
-        if raw > lightPeak { lightPeak = raw }
-        let shown = min(1, max(0, raw / max(lightPeak, 0.000_1)))
-        lightLevel = shown
-        detail = "Luce davanti \(Int((shown * 100).rounded()))%"
-        let rose = lightPeak > max(lightBase, 0.000_1) * 1.28
-        if rose && shown > 0.82 { lightSawBright = true }
-        if lightSawBright && shown < 0.58 {
-            settle("light", "pass", "La luce davanti è scesa appena tolta")
+        let ratio = raw / max(lightBase, 0.000_1)
+        let target = min(1, max(0, 0.16 + (ratio - 1) * 0.30))
+        if target + 0.03 < lightLevel {
+            lightLevel = target
+        } else {
+            lightLevel = lightLevel * 0.35 + target * 0.65
+        }
+        detail = "Luce davanti \(Int((lightLevel * 100).rounded()))%"
+        if lightLevel >= 0.55 { lightSawBright = true }
+        if lightSawBright && lightLevel <= 0.32 {
+            settle("light", "pass", "La luce davanti è salita e poi scesa")
             return
         }
-        if lightSawBright && shown < 0.75 {
+        if lightSawBright && lightLevel < 0.48 {
             hint = "La luce sta scendendo. Tieni la sorgente lontana dal sensore davanti."
         }
     }
@@ -1803,6 +1741,7 @@ final class DiagModel: ObservableObject {
         tone.stop()
         mic.stop()
         motion.stop()
+        ringer.stop()
         place.stop()
         radio.stop()
         depth.stop()
@@ -1825,13 +1764,6 @@ final class DiagModel: ObservableObject {
         volumeDidSet = false
         volumeToken += 1
         muteToken += 1
-        muteBaseline = nil
-        muteReads = 0
-        muteStreak = 0
-        if muteSound != 0 {
-            AudioServicesDisposeSystemSoundID(muteSound)
-            muteSound = 0
-        }
         UIDevice.current.isProximityMonitoringEnabled = false
         for token in observers {
             NotificationCenter.default.removeObserver(token)
@@ -1845,11 +1777,6 @@ final class DiagModel: ObservableObject {
         let positive = turn < 0 ? turn + 360 : turn
         let index = Int((positive + 22.5) / 45) % 8
         return names[index]
-    }
-
-    private static func angleGap(_ a: Double, _ b: Double) -> Double {
-        let raw = abs(a - b).truncatingRemainder(dividingBy: .pi * 2)
-        return min(raw, .pi * 2 - raw)
     }
 
     private static func micPlace(_ source: AVAudioSessionDataSourceDescription) -> (title: String, spot: String) {

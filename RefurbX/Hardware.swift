@@ -571,16 +571,20 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
     private var focusObservation: NSKeyValueObservation?
     private var lastLens: Float?
     private var focusGeneration = 0
-    private var onCodeHandler: ((String) -> Void)?
+    private var onCodeHandler: ((String, CGRect) -> Void)?
+    weak var previewLayer: AVCaptureVideoPreviewLayer?
     private var meterHandler: ((Double) -> Void)?
     private var meterClock = Date.distantPast
+    private weak var meterDevice: AVCaptureDevice?
 
     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
         guard let code = metadataObjects.compactMap({ $0 as? AVMetadataMachineReadableCodeObject }).first(where: { $0.type == .qr }),
               let value = code.stringValue, !value.isEmpty else { return }
         let callback = onCodeHandler
+        guard let callback else { return }
         onCodeHandler = nil
-        callback?(value)
+        let seen = previewLayer?.transformedMetadataObject(for: code) ?? code
+        callback(value, seen.bounds)
     }
 
     static func backLenses() -> [AVCaptureDevice.DeviceType] {
@@ -589,7 +593,7 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
         }
     }
 
-    func start(front: Bool, lens: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, scanQR: Bool = false, onFocus: @escaping () -> Void, onCode: @escaping (String) -> Void = { _ in }, onRunning: @escaping () -> Void, onError: @escaping (String) -> Void, onMeter: ((Double) -> Void)? = nil) {
+    func start(front: Bool, lens: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, scanQR: Bool = false, onFocus: @escaping () -> Void, onCode: @escaping (String, CGRect) -> Void = { _, _ in }, onRunning: @escaping () -> Void, onError: @escaping (String) -> Void, onMeter: ((Double) -> Void)? = nil) {
         focusGeneration += 1
         let generation = focusGeneration
         onCodeHandler = nil
@@ -610,6 +614,7 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
             }
             self.session.addInput(input)
             self.meterHandler = onMeter
+            self.meterDevice = onMeter == nil ? nil : camera
             if onMeter != nil {
                 let video = AVCaptureVideoDataOutput()
                 video.alwaysDiscardsLateVideoFrames = true
@@ -673,8 +678,16 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
         meterClock = now
         guard let pixel = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let luma = Self.meanLuma(pixel)
+        var scene = luma
+        if let camera = meterDevice {
+            let iso = Double(camera.iso)
+            let seconds = camera.exposureDuration.seconds
+            if iso > 1, seconds > 0 {
+                scene = 1.0 / (iso * seconds)
+            }
+        }
         let handler = meterHandler
-        DispatchQueue.main.async { handler?(luma) }
+        DispatchQueue.main.async { handler?(scene) }
     }
 
     private static func meanLuma(_ pixel: CVPixelBuffer) -> Double {
@@ -712,6 +725,7 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
         focusGeneration += 1
         onCodeHandler = nil
         meterHandler = nil
+        meterDevice = nil
         queue.async {
             if self.session.isRunning { self.session.stopRunning() }
             DispatchQueue.main.async {
@@ -850,18 +864,21 @@ final class PreviewView: UIView {
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     var front = false
+    var onLayer: ((AVCaptureVideoPreviewLayer) -> Void)? = nil
 
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
         view.front = front
         view.previewLayer.videoGravity = .resizeAspectFill
         view.attach(session: session)
+        onLayer?(view.previewLayer)
         return view
     }
 
     func updateUIView(_ uiView: PreviewView, context: Context) {
         uiView.front = front
         uiView.attach(session: session)
+        onLayer?(uiView.previewLayer)
     }
 
     static func dismantleUIView(_ uiView: PreviewView, coordinator: ()) {
@@ -972,13 +989,21 @@ final class MotionProbe {
         return true
     }
 
-    func attitude(_ body: @escaping (_ roll: Double, _ pitch: Double, _ yaw: Double, _ rate: Double) -> Void) -> Bool {
+    func attitude(_ body: @escaping (_ roll: Double, _ pitch: Double, _ spin: Double, _ verticalRate: Double, _ time: TimeInterval) -> Void) -> Bool {
         guard manager.isDeviceMotionAvailable else { return false }
         manager.deviceMotionUpdateInterval = 0.05
         manager.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: .main) { motion, _ in
             guard let motion else { return }
-            let rate = abs(motion.rotationRate.x) + abs(motion.rotationRate.y) + abs(motion.rotationRate.z)
-            body(motion.attitude.roll, motion.attitude.pitch, motion.attitude.yaw, rate)
+            let wx = motion.rotationRate.x
+            let wy = motion.rotationRate.y
+            let wz = motion.rotationRate.z
+            let spin = (wx * wx + wy * wy + wz * wz).squareRoot()
+            let gx = motion.gravity.x
+            let gy = motion.gravity.y
+            let gz = motion.gravity.z
+            let weight = max(0.2, (gx * gx + gy * gy + gz * gz).squareRoot())
+            let verticalRate = (wx * gx + wy * gy + wz * gz) / weight
+            body(motion.attitude.roll, motion.attitude.pitch, spin, verticalRate, motion.timestamp)
         }
         return true
     }
@@ -987,6 +1012,35 @@ final class MotionProbe {
         manager.stopAccelerometerUpdates()
         manager.stopGyroUpdates()
         manager.stopDeviceMotionUpdates()
+    }
+}
+
+final class RingerWatch {
+    private var token: Int32 = 0
+    private var armed = false
+
+    func start(_ body: @escaping (_ silent: Bool) -> Void) -> Bool {
+        stop()
+        var registered: Int32 = 0
+        let status = notify_register_dispatch("com.apple.springboard.ringerstate", &registered, .main) { token in
+            var state: UInt64 = 0
+            notify_get_state(token, &state)
+            body(state == 0)
+        }
+        guard status == NOTIFY_STATUS_OK else { return false }
+        token = registered
+        armed = true
+        var state: UInt64 = 0
+        notify_get_state(token, &state)
+        body(state == 0)
+        return true
+    }
+
+    func stop() {
+        guard armed else { return }
+        notify_cancel(token)
+        armed = false
+        token = 0
     }
 }
 
@@ -1492,13 +1546,16 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
             finish("closed", "NFC occupato. Chiudi le altre finestre e premi Apri lettore tag.", token: token)
             return
         }
-        let raw = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        let missingEntitlement = code == .readerErrorSecurityViolation
-            || raw.range(of: "Missing required entitlement", options: .caseInsensitive) != nil
-        let text = missingEntitlement
-            ? "Manca il permesso NFC TAG nella firma dell'app."
-            : (raw.isEmpty ? "La finestra NFC si è chiusa. Premi Apri lettore tag." : raw)
-        finish("closed", text, token: token)
+        let nsError = error as NSError
+        let raw = nsError.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let securityViolation = nsError.domain == NFCErrorDomain
+            && nsError.code == NFCReaderError.Code.readerErrorSecurityViolation.rawValue
+        let appleMissingEntitlement = raw.range(of: "Missing required entitlement", options: .caseInsensitive) != nil
+        if securityViolation || appleMissingEntitlement {
+            finish("closed", "Manca il permesso NFC TAG nella firma dell'app.", token: token)
+            return
+        }
+        finish("closed", raw.isEmpty ? "La finestra NFC si è chiusa. Premi Apri lettore tag." : raw, token: token)
     }
 
     private static func kind(_ tag: NFCTag) -> String {

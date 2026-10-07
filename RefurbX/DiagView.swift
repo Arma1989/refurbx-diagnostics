@@ -325,7 +325,7 @@ private struct RunScreen: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else if model.currentId == "network" || model.currentId == "bluetooth" {
             KeyMark(on: model.keyOk, waiting: model.detail.isEmpty ? "Controllo" : model.detail)
-        } else if model.currentId == "volume_up" || model.currentId == "volume_down" || model.currentId == "power_button" || model.currentId == "mute_switch" {
+        } else if model.currentId == "volume_up" || model.currentId == "volume_down" || model.currentId == "power_button" {
             ZStack {
                 if model.currentId == "volume_up" || model.currentId == "volume_down" {
                     VolumeCatcher { model.holdVolumeView($0) }
@@ -336,8 +336,13 @@ private struct RunScreen: View {
                     waiting: model.keyOk ? "Tasto ok" : keyWaiting(model.currentId)
                 )
             }
+        } else if model.currentId == "mute_switch" {
+            MuteWord(detail: model.detail, on: model.keyOk)
         } else if model.currentId == "light" {
-            LightBar(level: model.lightLevel)
+            VStack {
+                LightBar(level: model.lightLevel)
+                Spacer(minLength: 0)
+            }
         } else if model.currentId == "gps" {
             GpsBoard(accuracy: model.gpsAccuracy, latitude: model.gpsLatitude, longitude: model.gpsLongitude)
         } else if model.currentId == "multitouch" {
@@ -387,16 +392,15 @@ private struct RunScreen: View {
                 }
         } else if model.showCamera {
             VStack(spacing: 8) {
-                CameraPreview(session: model.camera.session, front: model.currentId == "camera_front")
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                CameraPreview(session: model.camera.session, front: model.currentId == "camera_front") { layer in
+                    model.camera.previewLayer = layer
+                }
                     .overlay {
-                        if model.currentId == "autofocus" {
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(cyan, lineWidth: 3)
-                                .frame(width: 160, height: 160)
-                                .allowsHitTesting(false)
+                        if model.currentId == "autofocus", model.qrCaught {
+                            QRGrab(box: model.qrBox)
                         }
                     }
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
                 if model.currentId == "camera_back", model.lenses.count > 1 {
                     HStack(spacing: 8) {
                         ForEach(model.lenses, id: \.rawValue) { type in
@@ -437,26 +441,54 @@ private struct RunScreen: View {
     }
 }
 
-private struct GradeFilm: View {
-    let name: String
-    @State private var drift = false
+private struct GradeFilm: UIViewRepresentable {
+    let id: String
 
-    var body: some View {
-        HStack {
-            Spacer(minLength: 0)
-            Image(name)
-                .resizable()
-                .scaledToFill()
-                .frame(width: 280, height: 380)
-                .scaleEffect(drift ? 1.08 : 1.0)
-                .offset(x: drift ? 12 : -10, y: drift ? -10 : 8)
-                .frame(width: 220, height: 320)
-                .clipped()
-                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(Look.line, lineWidth: 1))
-                .onAppear { drift = true }
-                .animation(.easeInOut(duration: 3.6).repeatForever(autoreverses: true), value: drift)
-            Spacer(minLength: 0)
+    func makeUIView(context: Context) -> GradeHost {
+        let view = GradeHost()
+        view.backgroundColor = .clear
+        view.play(id)
+        return view
+    }
+
+    func updateUIView(_ uiView: GradeHost, context: Context) {
+        uiView.play(id)
+    }
+}
+
+private final class GradeHost: UIView {
+    override class var layerClass: AnyClass { AVPlayerLayer.self }
+    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+    private var player: AVPlayer?
+    private var endObserver: NSObjectProtocol?
+    private var playingId = ""
+
+    func play(_ id: String) {
+        guard playingId != id, let url = GradeClip.file(for: id) else {
+            player?.play()
+            return
+        }
+        playingId = id
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+        }
+        let item = AVPlayerItem(url: url)
+        let player = AVPlayer(playerItem: item)
+        player.isMuted = true
+        self.player = player
+        playerLayer.player = player
+        playerLayer.videoGravity = .resizeAspect
+        let endName = Notification.Name.AVPlayerItemDidPlayToEndTime
+        endObserver = NotificationCenter.default.addObserver(forName: endName, object: item, queue: .main) { [weak player] _ in
+            player?.seek(to: .zero)
+            player?.play()
+        }
+        player.play()
+    }
+
+    deinit {
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
         }
     }
 }
@@ -529,7 +561,11 @@ private struct ReportScreen: View {
                     }
                 }
                 if let choice {
-                    GradeFilm(name: choice.film)
+                    GradeFilm(id: choice.id)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 340)
+                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(Look.line, lineWidth: 1))
                     Text("Esempio \(choice.id) · \(choice.title)")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Look.mute)
@@ -1198,6 +1234,50 @@ private struct KeyMark: View {
     }
 }
 
+private struct QRGrab: View {
+    let box: CGRect
+
+    var body: some View {
+        GeometryReader { geo in
+            let rect = fitted(box, in: geo.size)
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Look.cyan, lineWidth: 4)
+                    .background(Look.cyan.opacity(0.16), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .frame(width: rect.width, height: rect.height)
+                    .position(x: rect.midX, y: rect.midY)
+                Text("QR letto")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Look.navy)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Look.cyan, in: Capsule())
+                    .position(x: rect.midX, y: labelY(rect, height: geo.size.height))
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func fitted(_ box: CGRect, in size: CGSize) -> CGRect {
+        guard box.width > 8, box.height > 8, box.maxX > 0, box.maxY > 0 else {
+            let side = min(size.width, size.height) * 0.46
+            return CGRect(x: (size.width - side) / 2, y: (size.height - side) / 2, width: side, height: side)
+        }
+        let grown = box.insetBy(dx: -10, dy: -10)
+        let x = min(max(6, grown.minX), max(6, size.width - 48))
+        let y = min(max(6, grown.minY), max(6, size.height - 48))
+        let width = min(max(44, grown.width), size.width - x - 6)
+        let height = min(max(44, grown.height), size.height - y - 6)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    private func labelY(_ rect: CGRect, height: CGFloat) -> CGFloat {
+        let above = rect.minY - 20
+        if above > 18 { return above }
+        return min(height - 18, rect.maxY + 20)
+    }
+}
+
 private struct LightBar: View {
     let level: Double
 
@@ -1343,34 +1423,66 @@ private struct GyroList: View {
     @ObservedObject var model: DiagModel
 
     var body: some View {
-        VStack(spacing: 14) {
-            GeometryReader { geo in
-                let side = min(geo.size.width, geo.size.height)
+        GeometryReader { geo in
+            let rows = CGFloat(4 * 54 + 3 * 8)
+            let side = min(geo.size.width - 8, max(140, geo.size.height - rows - 12))
+            VStack(spacing: 8) {
                 horizon(side)
                     .frame(width: side, height: side)
-                    .clipped()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipShape(Circle())
+                VStack(spacing: 8) {
+                    stillRow
+                    degreeRow("Rollio", model.gyroRollDeg, "25°", model.gyroTilt)
+                    degreeRow("Beccheggio", model.gyroPitchDeg, "25°", model.gyroPitch)
+                    degreeRow("Imbardata", model.gyroYawDeg, "35°", model.gyroYaw)
+                }
             }
-            .clipped()
-            HStack(spacing: 8) {
-                axis("Rollio", model.gyroRollDeg, model.gyroTilt)
-                axis("Beccheggio", model.gyroPitchDeg, model.gyroPitch)
-                axis("Imbardata", model.gyroYawDeg, model.gyroYaw)
-            }
-            HStack(spacing: 8) {
-                Image(systemName: model.gyroRest ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(model.gyroRest ? Look.pass : Color.white.opacity(0.35))
-                Text(model.gyroRest ? "Fermo rilevato" : "Tienilo fermo un attimo")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(model.gyroRest ? Look.pass : Look.mute)
-            }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
         }
+    }
+
+    private var stillRow: some View {
+        gyroLine(
+            "Fermo",
+            model.gyroRest ? "Rilevato" : "1 s",
+            model.gyroRest
+        )
+    }
+
+    private func degreeRow(_ title: String, _ degrees: Double, _ goal: String, _ on: Bool) -> some View {
+        gyroLine(title, String(format: "%+.0f°", degrees), on, goal: goal)
+    }
+
+    private func gyroLine(_ title: String, _ value: String, _ on: Bool, goal: String = "") -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(on ? Look.pass : Color.white.opacity(0.35))
+                .frame(width: 28)
+            Text(title)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+            Spacer(minLength: 8)
+            if !goal.isEmpty {
+                Text(goal)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Look.mute)
+            }
+            Text(value)
+                .font(.system(size: 20, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(on ? Look.pass : .white)
+                .frame(minWidth: 64, alignment: .trailing)
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 48)
+        .background(Look.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(on ? Look.pass.opacity(0.7) : Look.line, lineWidth: 1))
     }
 
     private func horizon(_ side: CGFloat) -> some View {
         let pitch = max(-35, min(35, model.gyroPitchDeg))
-        let shift = CGFloat(pitch / 35) * side * 0.28
+        let shift = CGFloat(pitch / 35) * side * 0.32
         return ZStack {
             Circle().stroke(Color.white.opacity(0.28), lineWidth: 2)
             ZStack {
@@ -1378,7 +1490,7 @@ private struct GyroList: View {
                     Color(red: 0.16, green: 0.40, blue: 0.72)
                     Color(red: 0.34, green: 0.24, blue: 0.14)
                 }
-                .frame(width: side * 1.7, height: side * 1.7)
+                .frame(width: side * 1.8, height: side * 1.8)
                 .offset(y: shift)
                 Capsule()
                     .fill(Color.white.opacity(0.9))
@@ -1393,44 +1505,40 @@ private struct GyroList: View {
                     .offset(y: side * 0.12)
             }
             .rotationEffect(.degrees(-model.gyroRollDeg))
+            .frame(width: side, height: side)
             .clipShape(Circle())
             HStack(spacing: side * 0.07) {
                 Capsule().fill(cyan).frame(width: side * 0.2, height: 3)
                 Circle().stroke(cyan, lineWidth: 2).frame(width: 10, height: 10)
                 Capsule().fill(cyan).frame(width: side * 0.2, height: 3)
             }
-            Text(String(format: "Imb. %+.0f°", model.gyroYawDeg))
-                .font(.system(size: max(11, side * 0.055), weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(.black.opacity(0.4), in: Capsule())
-                .offset(y: side * 0.28)
         }
         .frame(width: side, height: side)
-        .clipShape(Circle())
+        .clipped()
+    }
+}
+
+private struct MuteWord: View {
+    let detail: String
+    let on: Bool
+
+    private var word: String {
+        if detail == "Suono" || detail == "Silenzioso" { return detail }
+        return "In attesa"
     }
 
-    private func axis(_ title: String, _ degrees: Double, _ on: Bool) -> some View {
-        VStack(spacing: 2) {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Look.mute)
+    var body: some View {
+        VStack(spacing: 18) {
+            Text(word)
+                .font(.system(size: word == "Silenzioso" ? 46 : 60, weight: .bold))
+                .foregroundStyle(.white)
+                .minimumScaleFactor(0.5)
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Text(String(format: "%+.0f°", degrees))
-                .font(.system(size: 18, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(on ? Look.pass : .white)
             Image(systemName: on ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 72, weight: .semibold))
                 .foregroundStyle(on ? Look.pass : Color.white.opacity(0.35))
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .background(Look.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(on ? Look.pass.opacity(0.7) : Look.line, lineWidth: 1))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
