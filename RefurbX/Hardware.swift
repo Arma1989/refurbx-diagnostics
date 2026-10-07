@@ -1630,13 +1630,16 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
         let appleMissingEntitlement = raw.range(of: "Missing required entitlement", options: .caseInsensitive) != nil
         if securityViolation || appleMissingEntitlement {
             let signed = SignedNfc.profile()
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+            let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+            let stamp = "\(version) build \(build)"
             let note: String
             if signed.formats.contains("TAG") {
-                note = "Il profilo \(signed.name) contiene TAG, ma iOS non lo vede nella firma DER."
+                note = "Il profilo \(signed.name) contiene TAG, ma iOS non lo vede nella firma DER (\(stamp))."
             } else if signed.name.isEmpty {
-                note = "Manca il permesso NFC TAG nella firma dell'app."
+                note = "Manca il permesso NFC TAG nella firma dell'app (\(stamp))."
             } else {
-                note = "Il profilo \(signed.name) non contiene TAG. Su Apple Developer eliminalo e rifallo con NFC Tag Reading."
+                note = "Il profilo \(signed.name) non contiene TAG (\(stamp)). Su Apple Developer lascialo con NFC Tag Reading."
             }
             finish("closed", note, token: token)
             return
