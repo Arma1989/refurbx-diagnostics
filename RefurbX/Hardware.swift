@@ -769,11 +769,6 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
         meterHandler = nil
         meterDevice = nil
         let view = retainedPreview
-        view?.previewLayer.session = nil
-        if retainedPreview === view {
-            retainedPreview = nil
-            previewLayer = nil
-        }
         queue.async {
             dispatchPrecondition(condition: .notOnQueue(.main))
             guard self.focusGeneration == generation else {
@@ -787,6 +782,11 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
                 guard self.focusGeneration == generation else {
                     done?()
                     return
+                }
+                view?.previewLayer.session = nil
+                if self.retainedPreview === view {
+                    self.retainedPreview = nil
+                    self.previewLayer = nil
                 }
                 done?()
             }

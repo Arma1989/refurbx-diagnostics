@@ -1569,10 +1569,7 @@ final class DiagModel: ObservableObject {
         qrCaught = true
         detail = "QR letto"
         hint = "QR letto"
-        later(0.35) {
-            guard self.still("autofocus") else { return }
-            self.settle("autofocus", "pass", "QR letto: \(short)")
-        }
+        settle("autofocus", "pass", "QR letto: \(short)")
     }
 
     private func startTrueDepth() {
