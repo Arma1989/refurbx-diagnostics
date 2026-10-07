@@ -443,12 +443,30 @@ private struct RunScreen: View {
     }
 }
 
-private struct GradeFilm: UIViewRepresentable {
+private struct GradeFilm: View {
+    let id: String
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if GradeClip.file(for: id) == nil {
+                Text("Video non trovato")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(16)
+            } else {
+                GradePlayer(id: id)
+            }
+        }
+    }
+}
+
+private struct GradePlayer: UIViewRepresentable {
     let id: String
 
     func makeUIView(context: Context) -> GradeHost {
         let view = GradeHost()
-        view.backgroundColor = .clear
         view.play(id)
         return view
     }
@@ -459,17 +477,45 @@ private struct GradeFilm: UIViewRepresentable {
 }
 
 private final class GradeHost: UIView {
-    override class var layerClass: AnyClass { AVPlayerLayer.self }
-    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+    private let videoLayer = AVPlayerLayer()
     private var player: AVPlayer?
     private var endObserver: NSObjectProtocol?
     private var playingId = ""
 
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .black
+        clipsToBounds = true
+        videoLayer.videoGravity = .resizeAspect
+        layer.addSublayer(videoLayer)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        backgroundColor = .black
+        clipsToBounds = true
+        videoLayer.videoGravity = .resizeAspect
+        layer.addSublayer(videoLayer)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        videoLayer.frame = bounds
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil {
+            player?.play()
+        }
+    }
+
     func play(_ id: String) {
-        guard playingId != id, let url = GradeClip.file(for: id) else {
+        guard playingId != id else {
             player?.play()
             return
         }
+        guard let url = GradeClip.file(for: id) else { return }
         playingId = id
         if let endObserver {
             NotificationCenter.default.removeObserver(endObserver)
@@ -478,13 +524,12 @@ private final class GradeHost: UIView {
         let player = AVPlayer(playerItem: item)
         player.isMuted = true
         self.player = player
-        playerLayer.player = player
-        playerLayer.videoGravity = .resizeAspect
+        videoLayer.player = player
+        videoLayer.frame = bounds
         let endName = Notification.Name.AVPlayerItemDidPlayToEndTime
         endObserver = NotificationCenter.default.addObserver(forName: endName, object: item, queue: .main) { [weak player] _ in
             player?.seek(to: .zero)
             player?.play()
-            return
         }
         player.play()
     }
@@ -748,38 +793,35 @@ private struct DisplayPane: View {
     let onFail: () -> Void
     let onSkip: () -> Void
     @State private var step = 0
-    private let shades: [(Color, Color, String)] = [
-        (.red, .white, "Rosso"),
-        (.white, .black, "Bianco"),
-        (.black, .white, "Nero"),
-    ]
+    private let colors: [Color] = [.white, .black, .red, .green, .blue, .yellow, Color(white: 0.5)]
+    private let names = ["Bianco", "Nero", "Rosso", "Verde", "Blu", "Giallo", "Grigio"]
 
     var body: some View {
         ZStack {
             if step == 0 {
                 intro
-            } else if step <= shades.count {
-                let item = shades[step - 1]
+            } else if step <= colors.count {
+                let index = step - 1
                 ZStack {
-                    item.0.ignoresSafeArea()
-                    Text(item.2)
+                    colors[index].ignoresSafeArea()
+                    Text(names[index])
                         .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(item.1)
+                        .foregroundStyle(ink(index))
                 }
             } else {
                 confirm
             }
         }
         .overlay {
-            if step <= shades.count {
+            if step > 0, step <= colors.count {
                 TapCatcher {
-                    if step <= shades.count { step += 1 }
+                    if step > 0, step <= colors.count { step += 1 }
                 }
                 .ignoresSafeArea()
             }
         }
         .overlay(alignment: .topTrailing) {
-            if step <= shades.count {
+            if step <= colors.count {
                 Button("Salta", action: onSkip)
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 14)
@@ -790,33 +832,91 @@ private struct DisplayPane: View {
             }
         }
         .task(id: step) {
-            guard step <= shades.count else { return }
-            let seconds: Double = step == 0 ? 3.4 : 2.2
-            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            guard !Task.isCancelled, step <= shades.count else { return }
+            guard step > 0, step <= colors.count else { return }
+            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            guard !Task.isCancelled, step > 0, step <= colors.count else { return }
             step += 1
         }
     }
 
+    private func ink(_ index: Int) -> Color {
+        index == 0 || index == 5 || index == 6 ? .black : .white
+    }
+
     private var intro: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("DISPLAY")
-                .font(.system(size: 13, weight: .semibold))
-                .tracking(0.8)
-                .foregroundStyle(cyan)
-            Text("Tre colori, poi mi dici se lo schermo è pulito.")
-                .font(.system(size: 28, weight: .semibold))
-                .foregroundStyle(.white)
-            swatch(.red, "Rosso", "Macchie scure e pixel spenti.")
-            swatch(.white, "Bianco", "Aloni, polvere e punti neri.")
-            swatch(.black, "Nero", "Chiazze chiare e bruciature.")
-            Text("Parte da solo. Puoi toccare per andare avanti.")
-                .font(.system(size: 15))
-                .foregroundStyle(Look.ink)
-            Spacer(minLength: 0)
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("DISPLAY")
+                        .font(.system(size: 13, weight: .semibold))
+                        .tracking(0.8)
+                        .foregroundStyle(cyan)
+                    Text("Cerca i pixel bloccati.")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(.white)
+                    phoneMark
+                    Text("Un pixel bloccato resta fermo su un solo colore e non può cambiarlo. Su un campo uniforme non segue gli altri: resta di un colore diverso, oppure si vede come un punto nero.")
+                        .font(.system(size: 16))
+                        .foregroundStyle(Look.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 8) {
+                        cue("Bianco: ", "aloni, polvere sotto il vetro, punti neri.")
+                        cue("Nero: ", "chiazze chiare, bruciature, aloni grigi.")
+                        cue("Rosso, verde, blu e giallo: ", "macchie scure, pixel spenti, linee.")
+                        cue("Grigio: ", "bande, macchie e differenze di luminosità.")
+                    }
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 48)
+                .padding(.bottom, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            BenchButton(title: "Inizia") { step = 1 }
+                .padding(.horizontal, 22)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
         }
-        .padding(22)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var phoneMark: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                .fill(Color(red: 0.07, green: 0.09, blue: 0.14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 32, style: .continuous)
+                        .stroke(cyan.opacity(0.7), lineWidth: 2)
+                )
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color(red: 0.16, green: 0.74, blue: 0.34))
+                .padding(10)
+            Capsule()
+                .fill(Color.black.opacity(0.55))
+                .frame(width: 42, height: 6)
+                .offset(y: -108)
+            ZStack {
+                stuckDot.offset(x: -28, y: 34)
+                stuckDot.offset(x: -20, y: 40)
+                stuckDot.offset(x: -14, y: 32)
+                stuckDot.offset(x: -22, y: 48)
+                stuckDot.offset(x: -10, y: 44)
+            }
+        }
+        .frame(width: 168, height: 276)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 4)
+        .accessibilityLabel("Telefono con schermo verde e alcuni punti scuri")
+    }
+
+    private var stuckDot: some View {
+        Circle()
+            .fill(Color.black.opacity(0.88))
+            .frame(width: 5, height: 5)
+    }
+
+    private func cue(_ title: String, _ line: String) -> some View {
+        (Text(title).font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+            + Text(line).font(.system(size: 16)).foregroundStyle(Look.ink))
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var confirm: some View {
@@ -836,22 +936,6 @@ private struct DisplayPane: View {
         .padding(22)
     }
 
-    private func swatch(_ color: Color, _ title: String, _ line: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(color)
-                .frame(width: 36, height: 36)
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.white.opacity(0.35), lineWidth: 1))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white)
-                Text(line)
-                    .font(.system(size: 15))
-                    .foregroundStyle(Look.ink)
-            }
-        }
-    }
 }
 
 private struct TapCatcher: UIViewRepresentable {

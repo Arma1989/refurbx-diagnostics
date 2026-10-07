@@ -632,7 +632,7 @@ final class DiagModel: ObservableObject {
         switch row.id {
         case "identity": readIdentity()
         case "network": readNetwork()
-        case "display": hint = "Rosso, bianco e nero partono da soli. Poi conferma se lo schermo è uniforme."
+        case "display": hint = "Bianco, nero, rosso, verde, blu, giallo e grigio partono da soli. Poi conferma se lo schermo è uniforme."
         case "touch":
             hint = "Trascina il dito su tutte le celle, anche i bordi. Una cella spenta è una zona morta."
             actions = [

@@ -48,7 +48,7 @@ private enum GuideCopy {
         case "identity": return "Mostro il nome commerciale e il codice di fabbrica, per esempio iPhone 17 Pro Max e iPhone18,2."
         case "memory": return "Mostro il totale, lo spazio libero e quello usato del telefono."
         case "network": return "Controllo se il Wi-Fi è collegato. Se non lo è, collega il Wi-Fi e riprova."
-        case "display": return "Prima compare cosa cercare su rosso, bianco e nero. Poi i tre colori partono da soli."
+        case "display": return "Prima leggi cosa cercare su ogni colore. I sette colori partono solo dopo Inizia: bianco, nero, rosso, verde, blu, giallo e grigio."
         case "touch": return "Trascina un dito su tutte le celle, anche sui bordi."
         case "multitouch": return "Appoggia due dita insieme, come nell'esempio."
         case "force": return "Premi piano e poi forte nel riquadro. Questo schermo misura la pressione."
@@ -263,7 +263,7 @@ private struct DemoScene: View {
     }
 
     private var colorWash: some View {
-        let colors: [Color] = [.red, .white, .black]
+        let colors: [Color] = [.white, .black, .red, .green, .blue, .yellow, Color(white: 0.5)]
         let index = min(colors.count - 1, Int(loop * Double(colors.count)))
         return colors[index]
     }
