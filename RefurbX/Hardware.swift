@@ -1492,8 +1492,13 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
             finish("closed", "NFC occupato. Chiudi le altre finestre e premi Apri lettore tag.", token: token)
             return
         }
-        let text = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        finish("closed", text.isEmpty ? "La finestra NFC si è chiusa. Premi Apri lettore tag." : text, token: token)
+        let raw = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let missingEntitlement = code == .readerErrorSecurityViolation
+            || raw.range(of: "Missing required entitlement", options: .caseInsensitive) != nil
+        let text = missingEntitlement
+            ? "Manca il permesso NFC TAG nella firma dell'app."
+            : (raw.isEmpty ? "La finestra NFC si è chiusa. Premi Apri lettore tag." : raw)
+        finish("closed", text, token: token)
     }
 
     private static func kind(_ tag: NFCTag) -> String {
