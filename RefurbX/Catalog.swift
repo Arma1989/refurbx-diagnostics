@@ -166,7 +166,7 @@ enum Cosmetic {
         Choice(id: "A+", title: "Come nuovo", line: "Segni assenti. Sembra appena uscito dalla scatola."),
         Choice(id: "A", title: "Eccellente", line: "Micro-segni, visibili solo da molto vicino."),
         Choice(id: "B", title: "Buono", line: "Segni di uso visibili su scocca o vetro."),
-        Choice(id: "C", title: "Vissuto", line: "Segni evidenti. Funziona, ma l'aspetto è vissuto."),
+        Choice(id: "C", title: "Segnato", line: "Tanti segni su vetro e scocca. Il vetro è intero: il telefono non è rotto."),
     ]
 
     static func find(_ id: String) -> Choice? {

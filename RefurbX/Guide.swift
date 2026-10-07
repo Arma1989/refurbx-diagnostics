@@ -12,7 +12,7 @@ struct GuideScreen: View {
                 index: model.index,
                 total: model.planCount,
                 group: Catalog.group(model.currentId),
-                title: model.buttonBundle ? "Volume e silenzioso" : Catalog.title(model.currentId),
+                title: model.buttonBundle ? "Tasti" : Catalog.title(model.currentId),
                 message: model.buttonBundle ? GuideCopy.bundleButtons : GuideCopy.line(model.currentId)
             )
             Spacer(minLength: 8)
@@ -38,14 +38,17 @@ struct GuideScreen: View {
 }
 
 private enum GuideCopy {
-    static let bundleButtons = "Volume +, volume − e silenzioso sono su questa schermata. Premi i tasti: compare la V. Se uno non va, segna la X solo su quella riga."
+    static var bundleButtons: String {
+        let side = HardwareFit.pad ? "il tasto in alto" : "il tasto laterale"
+        return "Volume +, volume −, accensione e silenzioso sono su questa schermata. Per l'accensione tieni premuti insieme \(side) e volume +: lo schermo resta acceso. Se uno non va, segna Non va solo su quella riga."
+    }
 
     static func line(_ id: String) -> String {
         switch id {
         case "identity": return "Mostro il nome commerciale e il codice di fabbrica, per esempio iPhone 17 Pro Max e iPhone18,2."
         case "memory": return "Mostro il totale, lo spazio libero e quello usato del telefono."
         case "network": return "Controllo se il Wi-Fi è collegato. Se non lo è, collega il Wi-Fi e riprova."
-        case "display": return "Lo schermo cambia colore. Tocca per andare avanti e cerca macchie o pixel spenti."
+        case "display": return "Prima compare cosa cercare su rosso, bianco e nero. Poi i tre colori partono da soli."
         case "touch": return "Trascina un dito su tutte le celle, anche sui bordi."
         case "multitouch": return "Appoggia due dita insieme, come nell'esempio."
         case "force": return "Premi piano e poi forte nel riquadro. Questo schermo misura la pressione."
@@ -58,7 +61,7 @@ private enum GuideCopy {
         case "headphones": return "Collega le cuffie se le hai. Se non le hai, salta."
         case "camera_back": return "Si apre la fotocamera dietro. Conferma solo se l'immagine è nitida."
         case "camera_front": return "Si apre la fotocamera davanti. Il volto deve essere dritto, in verticale."
-        case "autofocus": return "Inquadra un codice QR con la camera dietro. Appena lo vede, compare il riquadro e si passa avanti."
+        case "autofocus": return "Inquadra un codice QR con la camera dietro. Resta visibile il riquadro e il testo letto, poi si passa avanti."
         case "flash": return "Il flash si accende. Conferma solo se lo vedi acceso."
         case "truedepth": return "In alto a destra vedi la fotocamera, come in una videochiamata. Al centro i puntini bianchi sono il volto TrueDepth: girano con la testa."
         case "lidar": return "La vista a infrarossi resta aperta. Avvicina la mano: solo il vicino diventa più scuro."
@@ -72,7 +75,9 @@ private enum GuideCopy {
         case "nfc": return "Premi Apri lettore tag. Si apre la finestra di Apple: tieni la scheda ferma sul retro, in alto."
         case "volume_up": return "Premi volume più. Compare una spunta appena il tasto risponde."
         case "volume_down": return "Premi volume meno. Compare una spunta appena il tasto risponde."
-        case "power_button": return "Premi il tasto di accensione, poi riapri lo schermo."
+        case "power_button":
+            let side = HardwareFit.pad ? "il tasto in alto" : "l'accensione"
+            return "Tieni premuti insieme \(side) e volume +. Lo schermo resta acceso: iOS fa uno screenshot e il test passa."
         case "mute_switch":
             if HardwareFit.usesActionButton {
                 return "Premi il tasto Azione. In grande compare Suono o Silenzioso. L'app non emette suoni. La spunta arriva solo quando diventa silenzioso."
@@ -258,7 +263,7 @@ private struct DemoScene: View {
     }
 
     private var colorWash: some View {
-        let colors: [Color] = [.white, .black, .red, .green, .blue, .yellow]
+        let colors: [Color] = [.red, .white, .black]
         let index = min(colors.count - 1, Int(loop * Double(colors.count)))
         return colors[index]
     }

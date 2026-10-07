@@ -282,7 +282,7 @@ private struct RunScreen: View {
                 index: model.index,
                 total: model.planCount,
                 group: Catalog.group(model.currentId),
-                title: model.buttonBundle ? "Volume e silenzioso" : Catalog.title(model.currentId),
+                title: model.buttonBundle ? "Tasti" : Catalog.title(model.currentId),
                 message: model.hint
             )
             if !model.detail.isEmpty {
@@ -399,7 +399,7 @@ private struct RunScreen: View {
                 }
                     .overlay {
                         if model.currentId == "autofocus", model.qrCaught {
-                            QRGrab(box: model.qrBox)
+                            QRGrab(box: model.qrBox, text: model.qrText)
                         }
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 16))
@@ -426,7 +426,7 @@ private struct RunScreen: View {
         switch id {
         case "volume_down": return "Premi volume −"
         case "volume_up": return "Premi volume +"
-        case "power_button": return "Premi accensione"
+        case "power_button": return "Accensione + volume +"
         case "mute_switch":
             if model.detail == "Suono" || model.detail == "Silenzioso" { return model.detail }
             return HardwareFit.usesActionButton ? "Premi il tasto Azione" : "Sposta il silenzioso"
@@ -747,19 +747,39 @@ private struct DisplayPane: View {
     let onPass: () -> Void
     let onFail: () -> Void
     let onSkip: () -> Void
-    @State private var cursor = 0
-    private let colors: [Color] = [.white, .black, .red, .green, .blue, .yellow, Color(white: 0.5)]
+    @State private var step = 0
+    private let shades: [(Color, Color, String)] = [
+        (.red, .white, "Rosso"),
+        (.white, .black, "Bianco"),
+        (.black, .white, "Nero"),
+    ]
 
     var body: some View {
-        if cursor < colors.count {
-            ZStack {
-                colors[cursor].ignoresSafeArea()
-                TapCatcher { cursor += 1 }.ignoresSafeArea()
-                Text(cursor == 0 ? "Tocca per il colore successivo" : "\(cursor + 1) / \(colors.count)")
-                    .foregroundStyle(cursor == 0 || cursor == 5 || cursor == 6 ? .black : .white)
-                    .allowsHitTesting(false)
+        ZStack {
+            if step == 0 {
+                intro
+            } else if step <= shades.count {
+                let item = shades[step - 1]
+                ZStack {
+                    item.0.ignoresSafeArea()
+                    Text(item.2)
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(item.1)
+                }
+            } else {
+                confirm
             }
-            .overlay(alignment: .topTrailing) {
+        }
+        .overlay {
+            if step <= shades.count {
+                TapCatcher {
+                    if step <= shades.count { step += 1 }
+                }
+                .ignoresSafeArea()
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if step <= shades.count {
                 Button("Salta", action: onSkip)
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 14)
@@ -768,21 +788,68 @@ private struct DisplayPane: View {
                     .padding(.top, 8)
                     .padding(.trailing, 16)
             }
-        } else {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("DISPLAY")
-                    .font(.system(size: 13, weight: .semibold))
-                    .tracking(0.8)
-                    .foregroundStyle(cyan)
-                Text("Lo schermo è uniforme, senza pixel spenti, macchie o linee?")
-                    .font(.system(size: 28, weight: .semibold))
+        }
+        .task(id: step) {
+            guard step <= shades.count else { return }
+            let seconds: Double = step == 0 ? 3.4 : 2.2
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            guard !Task.isCancelled, step <= shades.count else { return }
+            step += 1
+        }
+    }
+
+    private var intro: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("DISPLAY")
+                .font(.system(size: 13, weight: .semibold))
+                .tracking(0.8)
+                .foregroundStyle(cyan)
+            Text("Tre colori, poi mi dici se lo schermo è pulito.")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(.white)
+            swatch(.red, "Rosso", "Macchie scure e pixel spenti.")
+            swatch(.white, "Bianco", "Aloni, polvere e punti neri.")
+            swatch(.black, "Nero", "Chiazze chiare e bruciature.")
+            Text("Parte da solo. Puoi toccare per andare avanti.")
+                .font(.system(size: 15))
+                .foregroundStyle(Look.ink)
+            Spacer(minLength: 0)
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var confirm: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("DISPLAY")
+                .font(.system(size: 13, weight: .semibold))
+                .tracking(0.8)
+                .foregroundStyle(cyan)
+            Text("Lo schermo è uniforme, senza pixel spenti, macchie o linee?")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(.white)
+            Spacer()
+            BenchButton(title: "Schermo ok", action: onPass)
+            BenchButton(title: "Vedo difetti", kind: .danger, action: onFail)
+            BenchButton(title: "Salta", kind: .secondary, action: onSkip)
+        }
+        .padding(22)
+    }
+
+    private func swatch(_ color: Color, _ title: String, _ line: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(color)
+                .frame(width: 36, height: 36)
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.white.opacity(0.35), lineWidth: 1))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
-                Spacer()
-                BenchButton(title: "Schermo ok", action: onPass)
-                BenchButton(title: "Vedo difetti", kind: .danger, action: onFail)
-                BenchButton(title: "Salta", kind: .secondary, action: onSkip)
+                Text(line)
+                    .font(.system(size: 15))
+                    .foregroundStyle(Look.ink)
             }
-            .padding(22)
         }
     }
 }
@@ -1224,10 +1291,21 @@ private struct ButtonTrio: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            line("Volume +", mark: model.volumeUpMark, live: nil) { model.failButton("volume_up") }
-            line("Volume −", mark: model.volumeDownMark, live: nil) { model.failButton("volume_down") }
-            line("Silenzioso", mark: model.muteMark, live: model.muteWord.isEmpty ? "In attesa" : model.muteWord) {
-                model.failButton("mute_switch")
+            if model.plan.contains("volume_up") {
+                line("Volume +", mark: model.volumeUpMark, live: nil) { model.failButton("volume_up") }
+            }
+            if model.plan.contains("volume_down") {
+                line("Volume −", mark: model.volumeDownMark, live: nil) { model.failButton("volume_down") }
+            }
+            if model.plan.contains("power_button") {
+                line("Accensione", mark: model.powerMark, live: "Screenshot con volume +") {
+                    model.failButton("power_button")
+                }
+            }
+            if model.plan.contains("mute_switch") {
+                line("Silenzioso", mark: model.muteMark, live: model.muteWord.isEmpty ? "In attesa" : model.muteWord) {
+                    model.failButton("mute_switch")
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -1302,11 +1380,12 @@ private struct KeyMark: View {
 
 private struct QRGrab: View {
     let box: CGRect
+    let text: String
 
     var body: some View {
         GeometryReader { geo in
             let rect = fitted(box, in: geo.size)
-            ZStack {
+            ZStack(alignment: .bottom) {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(Look.cyan, lineWidth: 4)
                     .background(Look.cyan.opacity(0.16), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -1319,6 +1398,22 @@ private struct QRGrab: View {
                     .padding(.vertical, 5)
                     .background(Look.cyan, in: Capsule())
                     .position(x: rect.midX, y: labelY(rect, height: geo.size.height))
+                VStack(spacing: 4) {
+                    Text("QR letto")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Look.navy)
+                    Text(text.isEmpty ? "Codice inquadrato" : text)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .frame(maxWidth: geo.size.width - 24)
+                .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Look.cyan, lineWidth: 2))
+                .padding(.bottom, 12)
             }
         }
         .allowsHitTesting(false)

@@ -72,8 +72,10 @@ final class DiagModel: ObservableObject {
     @Published var buttonBundle = false
     @Published var volumeUpMark = ""
     @Published var volumeDownMark = ""
+    @Published var powerMark = ""
     @Published var muteMark = ""
     @Published var muteWord = ""
+    @Published var qrText = ""
     @Published var lightLevel: Double = 0
 
     var planCount: Int { max(plan.count, 1) }
@@ -106,9 +108,6 @@ final class DiagModel: ObservableObject {
     private var bestGps: CLLocation?
     private var settled = false
     private var wave = 0
-    private var sawLock = false
-    private var sawBackground = false
-    private var armPower = false
     private var volumePrevious: Float = -1
     private var volumeTimer: Timer?
     private var volumeObservation: NSKeyValueObservation?
@@ -126,7 +125,7 @@ final class DiagModel: ObservableObject {
     private var muteToken = 0
     private var muteSawSound = false
     private var buttonFinishQueued = false
-    private static let buttonTrio: Set<String> = ["volume_up", "volume_down", "mute_switch"]
+    private static let buttonIds: Set<String> = ["volume_up", "volume_down", "power_button", "mute_switch"]
     private var lightWarm = 0
     private var lightFloor = 0.0
     private var lightCeil = 0.0
@@ -295,18 +294,6 @@ final class DiagModel: ObservableObject {
         if phase == .active, currentId == "gps", !settled {
             place.requestFix()
         }
-        guard armPower, currentId == "power_button", !settled else { return }
-        if phase == .background { sawBackground = true }
-        if phase == .active && (sawLock || sawBackground) {
-            armPower = false
-            keyOk = true
-            detail = "Accensione ricevuta"
-            hint = "Tasto ok."
-            later(0.8) {
-                guard self.still("power_button") else { return }
-                self.settle("power_button", "pass", "Schermo spento e riacceso")
-            }
-        }
     }
 
     func skipCurrent() {
@@ -326,6 +313,9 @@ final class DiagModel: ObservableObject {
         case "volume_down":
             guard volumeDownMark.isEmpty else { return }
             volumeDownMark = "fail"
+        case "power_button":
+            guard powerMark.isEmpty else { return }
+            powerMark = "fail"
         case "mute_switch":
             guard muteMark.isEmpty else { return }
             muteMark = "fail"
@@ -505,7 +495,7 @@ final class DiagModel: ObservableObject {
 
     private func enter() {
         let row = current
-        if Self.buttonTrio.contains(row.id), outcomes.contains(where: { $0.id == row.id }) {
+        if Self.buttonIds.contains(row.id), outcomes.contains(where: { $0.id == row.id }) {
             goNext()
             return
         }
@@ -519,6 +509,7 @@ final class DiagModel: ObservableObject {
         showCamera = false
         qrCaught = false
         qrBox = .zero
+        qrText = ""
         qrOnce = false
         fingers = 0
         proximityLit = false
@@ -561,6 +552,7 @@ final class DiagModel: ObservableObject {
         keyOk = false
         volumeUpMark = ""
         volumeDownMark = ""
+        powerMark = ""
         muteMark = ""
         muteWord = ""
         muteSawSound = false
@@ -587,8 +579,31 @@ final class DiagModel: ObservableObject {
     }
 
     private func bundlesButtons(_ id: String) -> Bool {
-        guard Self.buttonTrio.contains(id), plan.count > 1 else { return false }
-        return Self.buttonTrio.isSubset(of: Set(plan))
+        let present = plan.filter { Self.buttonIds.contains($0) }
+        return present.count > 1 && present.contains(id)
+    }
+
+    private var bundledButtonIds: [String] {
+        ["volume_up", "volume_down", "power_button", "mute_switch"].filter { plan.contains($0) }
+    }
+
+    private func buttonMark(_ id: String) -> String {
+        switch id {
+        case "volume_up": return volumeUpMark
+        case "volume_down": return volumeDownMark
+        case "power_button": return powerMark
+        case "mute_switch": return muteMark
+        default: return ""
+        }
+    }
+
+    private func buttonsReady() -> Bool {
+        let ids = bundledButtonIds
+        guard ids.count > 1 else { return false }
+        return ids.allSatisfy { id in
+            let mark = buttonMark(id)
+            return mark == "pass" || mark == "fail"
+        }
     }
 
     private static let immediateIds: Set<String> = [
@@ -617,7 +632,7 @@ final class DiagModel: ObservableObject {
         switch row.id {
         case "identity": readIdentity()
         case "network": readNetwork()
-        case "display": hint = "Tocca lo schermo per passare di colore. Poi conferma se è uniforme."
+        case "display": hint = "Rosso, bianco e nero partono da soli. Poi conferma se lo schermo è uniforme."
         case "touch":
             hint = "Trascina il dito su tutte le celle, anche i bordi. Una cella spenta è una zona morta."
             actions = [
@@ -660,7 +675,8 @@ final class DiagModel: ObservableObject {
             if buttonBundle { startButtonBundle() } else { watchVolume(up: true) }
         case "volume_down":
             if buttonBundle { startButtonBundle() } else { watchVolume(up: false) }
-        case "power_button": startPower()
+        case "power_button":
+            if buttonBundle { startButtonBundle() } else { startPower() }
         case "mute_switch":
             if buttonBundle { startButtonBundle() } else { startMute() }
         case "charging": watchCharge()
@@ -725,11 +741,8 @@ final class DiagModel: ObservableObject {
         let code = Machine.identifier
         let name = Machine.commercialName
         let os = "\(HardwareFit.systemName) \(UIDevice.current.systemVersion)"
-        let scale = UIScreen.main.scale
-        let points = "\(Int(UIScreen.main.bounds.width))×\(Int(UIScreen.main.bounds.height))"
-        let pixels = "\(Int(UIScreen.main.bounds.width * scale))×\(Int(UIScreen.main.bounds.height * scale))"
-        let note = "\(Machine.described) · \(os) · \(points) pt · \(pixels) px"
-        hint = "\(os) · \(points) pt · \(pixels) px"
+        let note = "\(Machine.described) · \(os)"
+        hint = os
         detail = name == nil ? "Codice di fabbrica \(code)" : "\(name ?? "")\nCodice di fabbrica \(code)"
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         later(3) { self.settle("identity", "pass", note) }
@@ -979,16 +992,43 @@ final class DiagModel: ObservableObject {
     private func startButtonBundle() {
         volumeUpMark = ""
         volumeDownMark = ""
+        powerMark = ""
         muteMark = ""
         muteWord = ""
         muteSawSound = false
         buttonFinishQueued = false
         keyOk = false
-        hint = "Premi volume + e volume −, poi metti in silenzioso. La V compare sulla riga che risponde."
+        let side = HardwareFit.pad ? "il tasto in alto" : "il tasto laterale"
+        var parts: [String] = []
+        if plan.contains("volume_up") || plan.contains("volume_down") {
+            parts.append("Premi volume + e volume −.")
+        }
+        if plan.contains("power_button") {
+            parts.append("Per l'accensione tieni premuti insieme \(side) e volume +. Lo schermo resta acceso e compare la V.")
+        }
+        if plan.contains("mute_switch") {
+            let mute = HardwareFit.usesActionButton
+                ? "Poi premi il tasto Azione fino a Silenzioso."
+                : "Poi sposta l'interruttore fino a Silenzioso."
+            parts.append(mute)
+        }
+        parts.append("Se uno non va, segna Non va solo su quella riga.")
+        hint = parts.joined(separator: " ")
         detail = ""
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
-        armVolumeWatch(target: 0.5)
-        armMuteWatch()
+        if plan.contains("volume_up") || plan.contains("volume_down") {
+            armVolumeWatch(target: 0.5)
+        }
+        if plan.contains("mute_switch") {
+            armMuteWatch()
+        }
+        if plan.contains("power_button") {
+            watch(UIApplication.userDidTakeScreenshotNotification) { [weak self] in
+                guard let self, self.buttonBundle, self.powerMark.isEmpty, !self.buttonFinishQueued else { return }
+                self.powerMark = "pass"
+                self.finishButtonsIfReady()
+            }
+        }
     }
 
     private func armVolumeWatch(target: Float) {
@@ -1187,16 +1227,15 @@ final class DiagModel: ObservableObject {
     }
 
     private func startPower() {
-        armPower = true
-        sawLock = false
-        sawBackground = false
-        hint = "Premi il tasto laterale finché lo schermo si spegne, poi riaccendilo e torna nell'app."
-        watch(UIApplication.protectedDataWillBecomeUnavailableNotification) { [weak self] in
-            self?.sawLock = true
-            return
+        keyOk = false
+        let side = HardwareFit.pad ? "il tasto in alto" : "il tasto laterale"
+        hint = "Tieni premuti insieme \(side) e volume +. Lo schermo resta acceso: appena compare lo screenshot, il test è ok."
+        detail = "In attesa dello screenshot"
+        watch(UIApplication.userDidTakeScreenshotNotification) { [weak self] in
+            self?.markKey("power_button", note: "Screenshot con accensione e volume +")
         }
         actions = [
-            Act(label: "Non spegne", status: "fail", note: "Il tasto laterale non spegne lo schermo"),
+            Act(label: "Non risponde", status: "fail", note: "Il tasto laterale non fa lo screenshot"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
     }
@@ -1254,33 +1293,36 @@ final class DiagModel: ObservableObject {
         }
         if !ok {
             hint = buttonBundle
-                ? "Non riesco a leggere il silenzioso. Segna la X su quella riga, oppure salta."
+                ? "Non riesco a leggere il silenzioso. Segna Non va su quella riga, oppure salta."
                 : "Non riesco a leggere il silenzioso. Segna che non commuta, oppure salta."
         }
     }
 
     private func finishButtonsIfReady() {
-        guard buttonBundle, !settled, !buttonFinishQueued else { return }
-        guard volumeUpMark == "pass" || volumeUpMark == "fail" else { return }
-        guard volumeDownMark == "pass" || volumeDownMark == "fail" else { return }
-        guard muteMark == "pass" || muteMark == "fail" else { return }
+        guard buttonBundle, !settled, !buttonFinishQueued, buttonsReady() else { return }
         buttonFinishQueued = true
         later(0.45) { self.commitButtonBundle() }
     }
 
     private func commitButtonBundle() {
-        guard buttonBundle, !settled else { return }
-        guard volumeUpMark == "pass" || volumeUpMark == "fail" else { return }
-        guard volumeDownMark == "pass" || volumeDownMark == "fail" else { return }
-        guard muteMark == "pass" || muteMark == "fail" else { return }
+        guard buttonBundle, !settled, buttonsReady() else { return }
         settled = true
         wave += 1
-        storeButton("volume_up", volumeUpMark, pass: "Volume su ricevuto", fail: "Volume su fermo")
-        storeButton("volume_down", volumeDownMark, pass: "Volume giù ricevuto", fail: "Volume giù fermo")
-        let muteFail = HardwareFit.usesActionButton
-            ? "Il tasto Azione non mette in silenzioso"
-            : "L'interruttore non mette in silenzioso"
-        storeButton("mute_switch", muteMark, pass: "Passato in silenzioso", fail: muteFail)
+        if plan.contains("volume_up") {
+            storeButton("volume_up", volumeUpMark, pass: "Volume su ricevuto", fail: "Volume su fermo")
+        }
+        if plan.contains("volume_down") {
+            storeButton("volume_down", volumeDownMark, pass: "Volume giù ricevuto", fail: "Volume giù fermo")
+        }
+        if plan.contains("power_button") {
+            storeButton("power_button", powerMark, pass: "Screenshot con accensione e volume +", fail: "Il tasto laterale non fa lo screenshot")
+        }
+        if plan.contains("mute_switch") {
+            let muteFail = HardwareFit.usesActionButton
+                ? "Il tasto Azione non mette in silenzioso"
+                : "L'interruttore non mette in silenzioso"
+            storeButton("mute_switch", muteMark, pass: "Passato in silenzioso", fail: muteFail)
+        }
         actions = []
         cleanup()
         remember()
@@ -1291,7 +1333,7 @@ final class DiagModel: ObservableObject {
         guard buttonBundle, !settled else { return }
         settled = true
         wave += 1
-        for id in ["volume_up", "volume_down", "mute_switch"] {
+        for id in bundledButtonIds {
             outcomes.removeAll { $0.id == id }
             outcomes.append(Outcome(id: id, status: "skip", note: "Non eseguito"))
         }
@@ -1532,6 +1574,7 @@ final class DiagModel: ObservableObject {
         qrOnce = false
         qrCaught = false
         qrBox = .zero
+        qrText = ""
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         AVCaptureDevice.requestAccess(for: .video) { granted in
             DispatchQueue.main.async {
@@ -1566,10 +1609,14 @@ final class DiagModel: ObservableObject {
         qrOnce = true
         let short = value.count > 80 ? String(value.prefix(80)) + "…" : value
         qrBox = box.integral
+        qrText = short
         qrCaught = true
-        detail = "QR letto"
-        hint = "QR letto"
-        settle("autofocus", "pass", "QR letto: \(short)")
+        detail = short
+        hint = "QR letto. Resta inquadrato un attimo."
+        later(1.4) {
+            guard self.still("autofocus") else { return }
+            self.settle("autofocus", "pass", "QR letto: \(short)")
+        }
     }
 
     private func startTrueDepth() {
@@ -1918,7 +1965,6 @@ final class DiagModel: ObservableObject {
     }
 
     private func cleanup(releaseCamera: Bool = true) {
-        armPower = false
         showCamera = false
         face.cancel()
         faceTrack.stop()
