@@ -1,12 +1,12 @@
 # RefurbX Diagnostica per iPhone e iPad
 
-App nativa dei test, versione 1.0.51 (build 52). Sul dispositivo il nome è **RefurbX Diagnostica**. Gira su iPhone e iPad. Team ID `L9F47LJC86`, bundle `eu.refurbx.diagnostics`.
+App nativa dei test, versione 1.0.52 (build 53). Sul dispositivo il nome è **RefurbX Diagnostica**. Gira su iPhone e iPad. Team ID `L9F47LJC86`, bundle `eu.refurbx.diagnostics`.
 
 Le prove che questo modello non ha restano in fondo, scure, e non partono. Su un altro dispositivo si accendono da sole: la penna sugli iPad che la ricevono, il 3D Touch sugli iPhone che lo hanno ancora.
 
 A fine diagnosi, nella scheda, incolla il link del banco e premi **Invia al banco**. Codemagic carica l'app su TestFlight senza inviarla ogni volta alla revisione beta: quel limite di Apple si era già esaurito. I tester interni la installano subito. La revisione per i tester esterni si fa a mano, una volta, da App Store Connect.
 
-Il permesso NFC è solo `TAG`. Prima dell'archivio il log scrive il nome del profilo e se contiene TAG. L'export usa lo stesso certificato Apple Distribution e quel profilo, e passa `RefurbX.entitlements`. La pubblicazione si ferma se `codesign -d --entitlements :-` sull'app dentro l'IPA non mostra TAG: non basta controllare l'archivio. Non si aggiunge `NDEF`: App Store Connect lo rifiuta con l'errore 90778.
+Il permesso NFC è solo `TAG`. La firma sceglie soltanto un profilo App Store il cui entitlement decodificato contiene `com.apple.developer.nfc.readersession.formats` con TAG. Ogni altro profilo ios_app_store viene messo da parte, anche se il bundle coincide. Archivio ed export usano quel profilo e `RefurbX.entitlements`. Se nessun profilo installato contiene TAG, la build si ferma e non pubblica l'IPA. Dopo l'IPA, `codesign -d --entitlements` sull'app dentro Payload deve mostrare TAG, e il log stampa il nome del profilo. Non si aggiunge `NDEF`: App Store Connect lo rifiuta con l'errore 90778.
 
 Codemagic legge `codemagic.yaml` in questa cartella e compila sul Mac mini M2. La build parte solo a mano, così non consuma i minuti gratuiti prima che la firma sia pronta.
 
