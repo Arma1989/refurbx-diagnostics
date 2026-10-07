@@ -282,7 +282,7 @@ private struct RunScreen: View {
                 index: model.index,
                 total: model.planCount,
                 group: Catalog.group(model.currentId),
-                title: Catalog.title(model.currentId),
+                title: model.buttonBundle ? "Volume e silenzioso" : Catalog.title(model.currentId),
                 message: model.hint
             )
             if !model.detail.isEmpty {
@@ -315,7 +315,9 @@ private struct RunScreen: View {
     }
 
     @ViewBuilder private var stage: some View {
-        if model.currentId == "memory" {
+        if model.buttonBundle {
+            ButtonTrio(model: model)
+        } else if model.currentId == "memory" {
             MemoryBoard(total: model.memoryTotal, free: model.memoryFree, used: model.memoryUsed)
         } else if model.currentId == "identity" {
             Text(model.detail.isEmpty ? "Lettura del modello" : model.detail)
@@ -1213,6 +1215,69 @@ private struct FacePlate: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+private struct ButtonTrio: View {
+    @ObservedObject var model: DiagModel
+
+    var body: some View {
+        VStack(spacing: 14) {
+            line("Volume +", mark: model.volumeUpMark, live: nil) { model.failButton("volume_up") }
+            line("Volume −", mark: model.volumeDownMark, live: nil) { model.failButton("volume_down") }
+            line("Silenzioso", mark: model.muteMark, live: model.muteWord.isEmpty ? "In attesa" : model.muteWord) {
+                model.failButton("mute_switch")
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .overlay(alignment: .bottom) {
+            VolumeCatcher { model.holdVolumeView($0) }
+                .frame(width: 200, height: 36)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private func line(_ title: String, mark: String, live: String?, fail: @escaping () -> Void) -> some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .stroke(mark == "pass" ? Look.pass : (mark == "fail" ? Look.fail : Color.white.opacity(0.28)), lineWidth: 2)
+                    .frame(width: 44, height: 44)
+                if mark == "pass" {
+                    Text("V")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(Look.pass)
+                } else if mark == "fail" {
+                    Text("X")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(Look.fail)
+                }
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.white)
+                if let live {
+                    Text(live)
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundStyle(live == "Silenzioso" ? Look.pass : .white)
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 8)
+            if mark.isEmpty {
+                Button("Non va", action: fail)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Look.fail)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 44)
+                    .background(Look.fail.opacity(0.14), in: Capsule())
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 

@@ -12,11 +12,11 @@ struct GuideScreen: View {
                 index: model.index,
                 total: model.planCount,
                 group: Catalog.group(model.currentId),
-                title: Catalog.title(model.currentId),
-                message: GuideCopy.line(model.currentId)
+                title: model.buttonBundle ? "Volume e silenzioso" : Catalog.title(model.currentId),
+                message: model.buttonBundle ? GuideCopy.bundleButtons : GuideCopy.line(model.currentId)
             )
             Spacer(minLength: 8)
-            DemoReel(testId: model.currentId)
+            DemoReel(testId: model.buttonBundle ? "button_bundle" : model.currentId)
                 .frame(maxWidth: .infinity)
             Spacer(minLength: 8)
         }
@@ -38,6 +38,8 @@ struct GuideScreen: View {
 }
 
 private enum GuideCopy {
+    static let bundleButtons = "Volume +, volume − e silenzioso sono su questa schermata. Premi i tasti: compare la V. Se uno non va, segna la X solo su quella riga."
+
     static func line(_ id: String) -> String {
         switch id {
         case "identity": return "Mostro il nome commerciale e il codice di fabbrica, per esempio iPhone 17 Pro Max e iPhone18,2."
@@ -132,7 +134,7 @@ private struct PhoneChrome<Content: View>: View {
                 .padding(.top, 16)
         }
         .overlay {
-            if testId == "mute_switch" {
+            if testId == "mute_switch" || testId == "button_bundle" {
                 MuteSide(loop: loop)
             }
         }
@@ -231,6 +233,8 @@ private struct DemoScene: View {
                 radioWaves
             case "volume_up", "volume_down", "power_button":
                 sideButton
+            case "button_bundle":
+                volumePair
             case "mute_switch":
                 Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
             case "charging":
@@ -541,6 +545,17 @@ private struct DemoScene: View {
                 .frame(width: 8, height: up ? 28 : 36)
                 .offset(x: 6, y: up ? -40 : 20)
                 .opacity(0.45 + loop * 0.55)
+        }
+    }
+
+    private var volumePair: some View {
+        HStack {
+            Spacer()
+            VStack(spacing: 10) {
+                Capsule().fill(cyan).frame(width: 8, height: 28).opacity(0.45 + loop * 0.55)
+                Capsule().fill(cyan).frame(width: 8, height: 36).opacity(0.45 + (1 - loop) * 0.55)
+            }
+            .offset(x: 6, y: -10)
         }
     }
 

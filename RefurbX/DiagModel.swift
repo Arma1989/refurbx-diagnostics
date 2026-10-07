@@ -69,6 +69,11 @@ final class DiagModel: ObservableObject {
     @Published var benchState = ""
     @Published var benchSending = false
     @Published var keyOk = false
+    @Published var buttonBundle = false
+    @Published var volumeUpMark = ""
+    @Published var volumeDownMark = ""
+    @Published var muteMark = ""
+    @Published var muteWord = ""
     @Published var lightLevel: Double = 0
 
     var planCount: Int { max(plan.count, 1) }
@@ -116,7 +121,11 @@ final class DiagModel: ObservableObject {
     private var volumeWait = 0
     private var volumeLast: Float = -1
     private var volumeToken = 0
+    private var volumeTarget: Float = 0.5
     private var muteToken = 0
+    private var muteSawSound = false
+    private var buttonFinishQueued = false
+    private static let buttonTrio: Set<String> = ["volume_up", "volume_down", "mute_switch"]
     private var lightWarm = 0
     private var lightFloor = 0.0
     private var lightCeil = 0.0
@@ -273,6 +282,10 @@ final class DiagModel: ObservableObject {
             micLines.append("\(micLabel) \(act.status == "mic-bad" ? "non si sente" : "si sente")")
             advanceMic()
         default:
+            if buttonBundle, act.status == "skip" {
+                skipButtonBundle()
+                return
+            }
             settle(currentId, act.status, act.note)
         }
     }
@@ -296,7 +309,29 @@ final class DiagModel: ObservableObject {
     }
 
     func skipCurrent() {
+        if buttonBundle {
+            skipButtonBundle()
+            return
+        }
         settle(currentId, "skip", "Non eseguito")
+    }
+
+    func failButton(_ id: String) {
+        guard buttonBundle, !settled, !buttonFinishQueued else { return }
+        switch id {
+        case "volume_up":
+            guard volumeUpMark.isEmpty else { return }
+            volumeUpMark = "fail"
+        case "volume_down":
+            guard volumeDownMark.isEmpty else { return }
+            volumeDownMark = "fail"
+        case "mute_switch":
+            guard muteMark.isEmpty else { return }
+            muteMark = "fail"
+        default:
+            return
+        }
+        finishButtonsIfReady()
     }
 
     func useLens(_ next: AVCaptureDevice.DeviceType) {
@@ -351,19 +386,7 @@ final class DiagModel: ObservableObject {
         actions = []
         cleanup(releaseCamera: cameraWasOpen && !leaveAtOnce)
         let proceed = { [weak self] in
-            guard let self else { return }
-            guard self.index + 1 < self.plan.count else {
-                self.recordLocked()
-                if self.testedAt == nil { self.testedAt = Date() }
-                self.phase = "report"
-                self.currentId = "report"
-                self.remember()
-                self.prepareSheet()
-                return
-            }
-            self.index += 1
-            self.remember()
-            self.enter()
+            self?.goNext()
         }
         if leaveAtOnce {
             DispatchQueue.main.async { proceed() }
@@ -476,13 +499,32 @@ final class DiagModel: ObservableObject {
         ]
     }
 
+    private func goNext() {
+        guard index + 1 < plan.count else {
+            recordLocked()
+            if testedAt == nil { testedAt = Date() }
+            phase = "report"
+            currentId = "report"
+            buttonBundle = false
+            remember()
+            prepareSheet()
+            return
+        }
+        index += 1
+        remember()
+        enter()
+    }
+
     private func enter() {
-        cleanup()
         let row = current
+        if Self.buttonTrio.contains(row.id), outcomes.contains(where: { $0.id == row.id }) {
+            goNext()
+            return
+        }
+        cleanup()
         currentId = row.id
         settled = false
         phase = "guide"
-        remember()
         hint = ""
         detail = ""
         actions = []
@@ -529,6 +571,13 @@ final class DiagModel: ObservableObject {
         bestGps = nil
         sawUnplugged = false
         keyOk = false
+        volumeUpMark = ""
+        volumeDownMark = ""
+        muteMark = ""
+        muteWord = ""
+        muteSawSound = false
+        buttonFinishQueued = false
+        buttonBundle = false
         lightLevel = 0
         lightWarm = 0
         lightFloor = 0
@@ -542,6 +591,26 @@ final class DiagModel: ObservableObject {
         if row.id == "nfc" {
             armNfc()
         }
+        buttonBundle = bundlesButtons(row.id)
+        if Self.skipsGuide(row.id) {
+            beginCurrent()
+        }
+        remember()
+    }
+
+    private func bundlesButtons(_ id: String) -> Bool {
+        guard Self.buttonTrio.contains(id), plan.count > 1 else { return false }
+        return Self.buttonTrio.isSubset(of: Set(plan))
+    }
+
+    private static let immediateIds: Set<String> = [
+        "identity", "memory", "display", "network", "vibration",
+        "flash", "bluetooth", "charging", "biometrics",
+    ]
+
+    private static func skipsGuide(_ id: String) -> Bool {
+        guard id != "nfc" else { return false }
+        return immediateIds.contains(id)
     }
 
     func beginCurrent() {
@@ -599,10 +668,13 @@ final class DiagModel: ObservableObject {
         case "accelerometer": startAccel()
         case "gyroscope": startGyro()
         case "gps": startGps()
-        case "volume_up": watchVolume(up: true)
-        case "volume_down": watchVolume(up: false)
+        case "volume_up":
+            if buttonBundle { startButtonBundle() } else { watchVolume(up: true) }
+        case "volume_down":
+            if buttonBundle { startButtonBundle() } else { watchVolume(up: false) }
         case "power_button": startPower()
-        case "mute_switch": startMute()
+        case "mute_switch":
+            if buttonBundle { startButtonBundle() } else { startMute() }
         case "charging": watchCharge()
         case "wireless": watchWireless()
         case "biometrics": startBiometrics()
@@ -903,20 +975,7 @@ final class DiagModel: ObservableObject {
     }
 
     private func watchVolume(up: Bool) {
-        activateVolumeSession()
-        volumeTimer?.invalidate()
-        volumeTimer = nil
-        volumeObservation?.invalidate()
-        volumeObservation = nil
-        volumeToken += 1
-        let token = volumeToken
         volumeWantsUp = up
-        volumeArmed = false
-        volumeDidSet = false
-        volumeStable = 0
-        volumeWait = 0
-        volumeLast = -1
-        volumePrevious = -1
         keyOk = false
         hint = up
             ? "Premi volume su. Compare la spunta appena il tasto risponde."
@@ -926,6 +985,39 @@ final class DiagModel: ObservableObject {
             Act(label: "Non risponde", status: "fail", note: up ? "Volume su fermo" : "Volume giù fermo"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
+        armVolumeWatch(target: up ? 0.3 : 0.7)
+    }
+
+    private func startButtonBundle() {
+        volumeUpMark = ""
+        volumeDownMark = ""
+        muteMark = ""
+        muteWord = ""
+        muteSawSound = false
+        buttonFinishQueued = false
+        keyOk = false
+        hint = "Premi volume + e volume −, poi metti in silenzioso. La V compare sulla riga che risponde."
+        detail = ""
+        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        armVolumeWatch(target: 0.5)
+        armMuteWatch()
+    }
+
+    private func armVolumeWatch(target: Float) {
+        activateVolumeSession()
+        volumeTimer?.invalidate()
+        volumeTimer = nil
+        volumeObservation?.invalidate()
+        volumeObservation = nil
+        volumeToken += 1
+        let token = volumeToken
+        volumeTarget = target
+        volumeArmed = false
+        volumeDidSet = false
+        volumeStable = 0
+        volumeWait = 0
+        volumeLast = -1
+        volumePrevious = -1
         volumeObservation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in
                 guard let self, self.volumeToken == token else { return }
@@ -948,12 +1040,14 @@ final class DiagModel: ObservableObject {
     }
 
     func holdVolumeView(_ view: MPVolumeView) {
-        guard currentId == "volume_up" || currentId == "volume_down" else { return }
+        let watching = buttonBundle || currentId == "volume_up" || currentId == "volume_down"
+        guard watching else { return }
         view.isHidden = false
         view.alpha = 0.02
         view.layoutIfNeeded()
         volumeCatcher = view
-        guard !volumeArmed, !volumeDidSet, !keyOk, !volumeSliders().isEmpty else { return }
+        guard !volumeArmed, !volumeDidSet, !volumeSliders().isEmpty else { return }
+        if !buttonBundle, keyOk { return }
         pollVolume()
     }
 
@@ -1010,15 +1104,20 @@ final class DiagModel: ObservableObject {
         }
     }
 
-    private func pollVolume() {
+    private func volumeSessionLive() -> Bool {
+        if buttonBundle { return !settled }
         let id = volumeWantsUp ? "volume_up" : "volume_down"
-        guard still(id), !keyOk else { return }
+        return still(id) && !keyOk
+    }
+
+    private func pollVolume() {
+        guard volumeSessionLive() else { return }
         let now = AVAudioSession.sharedInstance().outputVolume
         if volumeArmed {
             noteVolume(now)
             return
         }
-        let target: Float = volumeWantsUp ? 0.3 : 0.7
+        let target = volumeTarget
         if !volumeDidSet {
             let sliders = volumeSliders()
             guard !sliders.isEmpty else {
@@ -1057,16 +1156,23 @@ final class DiagModel: ObservableObject {
     }
 
     private func armVolume(_ now: Float) {
-        let id = volumeWantsUp ? "volume_up" : "volume_down"
-        guard still(id), !keyOk, !volumeArmed else { return }
+        guard volumeSessionLive(), !volumeArmed else { return }
         volumePrevious = now
         volumeArmed = true
     }
 
     private func noteVolume(_ now: Float) {
-        let id = volumeWantsUp ? "volume_up" : "volume_down"
-        guard volumeArmed, still(id), !keyOk, volumePrevious >= 0 else { return }
+        guard volumeArmed, volumePrevious >= 0, volumeSessionLive() else { return }
         let delta = now - volumePrevious
+        if buttonBundle {
+            guard abs(delta) >= 0.02, !buttonFinishQueued else { return }
+            volumePrevious = now
+            if delta >= 0.02, volumeUpMark.isEmpty { volumeUpMark = "pass" }
+            if delta <= -0.02, volumeDownMark.isEmpty { volumeDownMark = "pass" }
+            finishButtonsIfReady()
+            return
+        }
+        let id = volumeWantsUp ? "volume_up" : "volume_down"
         let hit = volumeWantsUp ? delta >= 0.02 : delta <= -0.02
         guard hit else { return }
         markKey(id, note: volumeWantsUp ? "Volume su ricevuto" : "Volume giù ricevuto")
@@ -1103,9 +1209,7 @@ final class DiagModel: ObservableObject {
             return
         }
         keyOk = false
-        muteToken += 1
-        let token = muteToken
-        var sawSound = false
+        muteSawSound = false
         let action = HardwareFit.usesActionButton
         hint = action
             ? "Premi il tasto Azione finché in grande compare Silenzioso. L'app non emette suoni."
@@ -1115,19 +1219,94 @@ final class DiagModel: ObservableObject {
             Act(label: "Non commuta", status: "fail", note: action ? "Il tasto Azione non mette in silenzioso" : "L'interruttore non mette in silenzioso"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
+        armMuteWatch()
+    }
+
+    private func armMuteWatch() {
+        muteToken += 1
+        let token = muteToken
+        muteSawSound = false
         let ok = ringer.start { [weak self] silent in
-            guard let self, self.muteToken == token, self.still("mute_switch"), !self.keyOk else { return }
-            self.detail = silent ? "Silenzioso" : "Suono"
-            if !silent {
-                sawSound = true
+            guard let self, self.muteToken == token, !self.settled else { return }
+            let word = silent ? "Silenzioso" : "Suono"
+            if self.buttonBundle {
+                self.muteWord = word
+                if !silent {
+                    self.muteSawSound = true
+                    return
+                }
+                guard self.muteSawSound, self.muteMark.isEmpty, !self.buttonFinishQueued else {
+                    if !self.muteSawSound, self.muteMark.isEmpty, !self.buttonFinishQueued {
+                        self.hint = "Ora è silenzioso. Passa a Suono e poi di nuovo a Silenzioso: compare la V."
+                    }
+                    return
+                }
+                self.muteMark = "pass"
+                self.finishButtonsIfReady()
                 return
             }
-            guard sawSound else { return }
+            guard self.still("mute_switch"), !self.keyOk else { return }
+            self.detail = word
+            if !silent {
+                self.muteSawSound = true
+                return
+            }
+            guard self.muteSawSound else { return }
             self.markKey("mute_switch", note: "Passato in silenzioso")
         }
         if !ok {
-            hint = "Non riesco a leggere il silenzioso. Segna che non commuta, oppure salta."
+            hint = buttonBundle
+                ? "Non riesco a leggere il silenzioso. Segna la X su quella riga, oppure salta."
+                : "Non riesco a leggere il silenzioso. Segna che non commuta, oppure salta."
         }
+    }
+
+    private func finishButtonsIfReady() {
+        guard buttonBundle, !settled, !buttonFinishQueued else { return }
+        guard volumeUpMark == "pass" || volumeUpMark == "fail" else { return }
+        guard volumeDownMark == "pass" || volumeDownMark == "fail" else { return }
+        guard muteMark == "pass" || muteMark == "fail" else { return }
+        buttonFinishQueued = true
+        later(0.45) { self.commitButtonBundle() }
+    }
+
+    private func commitButtonBundle() {
+        guard buttonBundle, !settled else { return }
+        guard volumeUpMark == "pass" || volumeUpMark == "fail" else { return }
+        guard volumeDownMark == "pass" || volumeDownMark == "fail" else { return }
+        guard muteMark == "pass" || muteMark == "fail" else { return }
+        settled = true
+        wave += 1
+        storeButton("volume_up", volumeUpMark, pass: "Volume su ricevuto", fail: "Volume su fermo")
+        storeButton("volume_down", volumeDownMark, pass: "Volume giù ricevuto", fail: "Volume giù fermo")
+        let muteFail = HardwareFit.usesActionButton
+            ? "Il tasto Azione non mette in silenzioso"
+            : "L'interruttore non mette in silenzioso"
+        storeButton("mute_switch", muteMark, pass: "Passato in silenzioso", fail: muteFail)
+        actions = []
+        cleanup()
+        remember()
+        DispatchQueue.main.async { self.goNext() }
+    }
+
+    private func skipButtonBundle() {
+        guard buttonBundle, !settled else { return }
+        settled = true
+        wave += 1
+        for id in ["volume_up", "volume_down", "mute_switch"] {
+            outcomes.removeAll { $0.id == id }
+            outcomes.append(Outcome(id: id, status: "skip", note: "Non eseguito"))
+        }
+        actions = []
+        cleanup()
+        remember()
+        DispatchQueue.main.async { self.goNext() }
+    }
+
+    private func storeButton(_ id: String, _ status: String, pass: String, fail: String) {
+        let note = status == "pass" ? pass : fail
+        outcomes.removeAll { $0.id == id }
+        outcomes.append(Outcome(id: id, status: status, note: note))
     }
 
     private func watchCharge() {

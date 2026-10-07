@@ -1015,6 +1015,23 @@ final class MotionProbe {
     }
 }
 
+// notify.h is a Darwin C header. The Swift overlay does not declare these symbols.
+@_silgen_name("notify_register_dispatch")
+private func notify_register_dispatch(
+    _ name: UnsafePointer<CChar>,
+    _ outToken: UnsafeMutablePointer<Int32>,
+    _ queue: DispatchQueue,
+    _ handler: @convention(block) (Int32) -> Void
+) -> UInt32
+
+@_silgen_name("notify_get_state")
+private func notify_get_state(_ token: Int32, _ state: UnsafeMutablePointer<UInt64>) -> UInt32
+
+@_silgen_name("notify_cancel")
+private func notify_cancel(_ token: Int32) -> UInt32
+
+private let NOTIFY_STATUS_OK: UInt32 = 0
+
 final class RingerWatch {
     private var token: Int32 = 0
     private var armed = false
@@ -1022,7 +1039,7 @@ final class RingerWatch {
     func start(_ body: @escaping (_ silent: Bool) -> Void) -> Bool {
         stop()
         var registered: Int32 = 0
-        let status = notify_register_dispatch("com.apple.springboard.ringerstate", &registered, .main) { token in
+        let status = notify_register_dispatch("com.apple.springboard.ringerstate", &registered, DispatchQueue.main) { (token: Int32) in
             var state: UInt64 = 0
             notify_get_state(token, &state)
             body(state == 0)
