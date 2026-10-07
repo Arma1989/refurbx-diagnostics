@@ -394,8 +394,8 @@ private struct RunScreen: View {
                 }
         } else if model.showCamera {
             VStack(spacing: 8) {
-                CameraPreview(session: model.camera.session, front: model.currentId == "camera_front") { layer in
-                    model.camera.previewLayer = layer
+                CameraPreview(session: model.camera.session, front: model.currentId == "camera_front") { view in
+                    model.noteCameraPreview(view)
                 }
                     .overlay {
                         if model.currentId == "autofocus", model.qrCaught {
@@ -1408,7 +1408,7 @@ final class NfcOpenController: UIViewController {
         button.accessibilityLabel = title
     }
 
-    @objc nonisolated func openReader() {
+    @objc func openReader() {
         probe.beginFromTap()
     }
 }
@@ -1433,6 +1433,7 @@ private struct VolumeCatcher: UIViewRepresentable {
 
     func makeUIView(context: Context) -> MPVolumeView {
         let view = MPVolumeView(frame: CGRect(x: 0, y: 0, width: 200, height: 36))
+        view.showsRouteButton = false
         view.isHidden = false
         view.alpha = 0.02
         view.backgroundColor = .clear
@@ -1440,14 +1441,12 @@ private struct VolumeCatcher: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: MPVolumeView, context: Context) {
+        uiView.showsRouteButton = false
         uiView.isHidden = false
-        if uiView.subviews.compactMap({ $0 as? UISlider }).isEmpty {
-            uiView.alpha = 1
-            uiView.layoutIfNeeded()
-        }
         uiView.alpha = 0.02
+        uiView.layoutIfNeeded()
         let ready = onReady
-        Task { @MainActor in
+        DispatchQueue.main.async {
             ready(uiView)
         }
     }

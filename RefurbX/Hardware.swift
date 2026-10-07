@@ -5,7 +5,6 @@ import CoreBluetooth
 import CoreLocation
 import CoreMotion
 import CoreNFC
-import Darwin
 import LocalAuthentication
 import Network
 import SwiftUI
@@ -573,18 +572,35 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
     private var focusGeneration = 0
     private var onCodeHandler: ((String, CGRect) -> Void)?
     weak var previewLayer: AVCaptureVideoPreviewLayer?
+    private var retainedPreview: PreviewView?
     private var meterHandler: ((Double) -> Void)?
     private var meterClock = Date.distantPast
     private weak var meterDevice: AVCaptureDevice?
 
+    func holdPreview(_ view: PreviewView) {
+        previewLayer = view.previewLayer
+        retainedPreview = view
+    }
+
     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
         guard let code = metadataObjects.compactMap({ $0 as? AVMetadataMachineReadableCodeObject }).first(where: { $0.type == .qr }),
               let value = code.stringValue, !value.isEmpty else { return }
-        let callback = onCodeHandler
-        guard let callback else { return }
-        onCodeHandler = nil
-        let seen = previewLayer?.transformedMetadataObject(for: code) ?? code
-        callback(value, seen.bounds)
+        guard let callback = onCodeHandler else { return }
+        let deliver = {
+            let box: CGRect
+            if let layer = self.previewLayer, let seen = layer.transformedMetadataObject(for: code) {
+                box = seen.bounds
+            } else {
+                box = code.bounds
+            }
+            self.onCodeHandler = nil
+            callback(value, box)
+        }
+        if Thread.isMainThread {
+            deliver()
+        } else {
+            DispatchQueue.main.async(execute: deliver)
+        }
     }
 
     static func backLenses() -> [AVCaptureDevice.DeviceType] {
@@ -598,10 +614,12 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
         let generation = focusGeneration
         onCodeHandler = nil
         queue.async {
-            if self.session.isRunning { self.session.stopRunning() }
+            dispatchPrecondition(condition: .notOnQueue(.main))
+            guard self.focusGeneration == generation else { return }
+            self.focusObservation?.invalidate()
+            self.focusObservation = nil
+            self.tearDownSession()
             self.session.beginConfiguration()
-            self.session.inputs.forEach { self.session.removeInput($0) }
-            self.session.outputs.forEach { self.session.removeOutput($0) }
             let position: AVCaptureDevice.Position = front ? .front : .back
             let wanted: AVCaptureDevice.DeviceType = front ? .builtInWideAngleCamera : lens
             guard let camera = AVCaptureDevice.default(wanted, for: .video, position: position)
@@ -629,47 +647,70 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
                 let output = AVCaptureMetadataOutput()
                 if self.session.canAddOutput(output) {
                     self.session.addOutput(output)
+                    output.setMetadataObjectsDelegate(self, queue: .main)
                     metadata = output
+                    self.onCodeHandler = onCode
                 }
             }
             if self.session.canSetSessionPreset(.hd1280x720) {
                 self.session.sessionPreset = .hd1280x720
             }
-            do {
-                try camera.lockForConfiguration()
-                if camera.isFocusModeSupported(.continuousAutoFocus) {
-                    camera.focusMode = .continuousAutoFocus
-                }
-                if camera.isExposureModeSupported(.continuousAutoExposure) {
-                    camera.exposureMode = .continuousAutoExposure
-                }
-                camera.unlockForConfiguration()
-            } catch {}
+            self.lockCamera(camera)
             self.session.commitConfiguration()
             if let metadata {
-                metadata.setMetadataObjectsDelegate(self, queue: .main)
-                if metadata.availableMetadataObjectTypes.contains(.qr) {
-                    metadata.metadataObjectTypes = [.qr]
-                }
-                self.onCodeHandler = onCode
+                self.session.beginConfiguration()
+                self.armQR(metadata)
+                self.session.commitConfiguration()
             }
             if !self.session.isRunning { self.session.startRunning() }
-            DispatchQueue.main.async(execute: onRunning)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-                guard let self, self.focusGeneration == generation else { return }
-                self.lastLens = nil
-                self.focusObservation = camera.observe(\.lensPosition, options: [.new]) { [weak self] _, change in
-                    guard let value = change.newValue else { return }
-                    DispatchQueue.main.async {
-                        guard let self, self.focusGeneration == generation else { return }
-                        if let previous = self.lastLens, abs(value - previous) > 0.04 {
-                            onFocus()
-                        }
-                        self.lastLens = value
+            if let metadata, !metadata.metadataObjectTypes.contains(.qr) {
+                self.session.beginConfiguration()
+                self.armQR(metadata)
+                self.session.commitConfiguration()
+            }
+            self.lastLens = nil
+            self.focusObservation = camera.observe(\.lensPosition, options: [.new]) { [weak self] _, change in
+                guard let value = change.newValue else { return }
+                DispatchQueue.main.async {
+                    guard let self, self.focusGeneration == generation else { return }
+                    if let previous = self.lastLens, abs(value - previous) > 0.04 {
+                        onFocus()
                     }
+                    self.lastLens = value
                 }
             }
+            DispatchQueue.main.async(execute: onRunning)
         }
+    }
+
+    private func armQR(_ output: AVCaptureMetadataOutput) {
+        dispatchPrecondition(condition: .notOnQueue(.main))
+        guard output.availableMetadataObjectTypes.contains(.qr) else { return }
+        if output.metadataObjectTypes.contains(.qr) { return }
+        output.metadataObjectTypes = [.qr]
+    }
+
+    private func lockCamera(_ camera: AVCaptureDevice) {
+        dispatchPrecondition(condition: .notOnQueue(.main))
+        do {
+            try camera.lockForConfiguration()
+            if camera.isFocusModeSupported(.continuousAutoFocus) {
+                camera.focusMode = .continuousAutoFocus
+            }
+            if camera.isExposureModeSupported(.continuousAutoExposure) {
+                camera.exposureMode = .continuousAutoExposure
+            }
+            camera.unlockForConfiguration()
+        } catch {}
+    }
+
+    private func tearDownSession() {
+        dispatchPrecondition(condition: .notOnQueue(.main))
+        if session.isRunning { session.stopRunning() }
+        session.beginConfiguration()
+        session.inputs.forEach { session.removeInput($0) }
+        session.outputs.forEach { session.removeOutput($0) }
+        session.commitConfiguration()
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
@@ -723,14 +764,30 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
 
     func stop(done: (() -> Void)? = nil) {
         focusGeneration += 1
+        let generation = focusGeneration
         onCodeHandler = nil
         meterHandler = nil
         meterDevice = nil
+        let view = retainedPreview
+        view?.previewLayer.session = nil
+        if retainedPreview === view {
+            retainedPreview = nil
+            previewLayer = nil
+        }
         queue.async {
-            if self.session.isRunning { self.session.stopRunning() }
+            dispatchPrecondition(condition: .notOnQueue(.main))
+            guard self.focusGeneration == generation else {
+                DispatchQueue.main.async { done?() }
+                return
+            }
+            self.focusObservation?.invalidate()
+            self.focusObservation = nil
+            self.tearDownSession()
             DispatchQueue.main.async {
-                self.focusObservation?.invalidate()
-                self.focusObservation = nil
+                guard self.focusGeneration == generation else {
+                    done?()
+                    return
+                }
                 done?()
             }
         }
@@ -738,6 +795,7 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
 
     func setTorch(_ on: Bool, done: @escaping (Bool) -> Void) {
         queue.async {
+            dispatchPrecondition(condition: .notOnQueue(.main))
             let ok = self.applyTorch(on)
             DispatchQueue.main.async { done(ok) }
         }
@@ -845,18 +903,22 @@ final class PreviewView: UIView {
         }
     }
 
+    func releaseObservers() {
+        if let runningObserver {
+            NotificationCenter.default.removeObserver(runningObserver)
+        }
+        runningObserver = nil
+        angleObservation?.invalidate()
+        angleObservation = nil
+        coordinator = nil
+        rotationDeviceID = ""
+    }
+
     override func willMove(toWindow newWindow: UIWindow?) {
         super.willMove(toWindow: newWindow)
         if newWindow == nil {
-            if let runningObserver {
-                NotificationCenter.default.removeObserver(runningObserver)
-            }
-            runningObserver = nil
-            angleObservation?.invalidate()
-            angleObservation = nil
-            coordinator = nil
-            rotationDeviceID = ""
-            previewLayer.session = nil
+            previewLayer.connection?.isEnabled = false
+            releaseObservers()
         }
     }
 }
@@ -864,25 +926,25 @@ final class PreviewView: UIView {
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     var front = false
-    var onLayer: ((AVCaptureVideoPreviewLayer) -> Void)? = nil
+    var onView: ((PreviewView) -> Void)? = nil
 
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
         view.front = front
         view.previewLayer.videoGravity = .resizeAspectFill
         view.attach(session: session)
-        onLayer?(view.previewLayer)
+        onView?(view)
         return view
     }
 
     func updateUIView(_ uiView: PreviewView, context: Context) {
         uiView.front = front
         uiView.attach(session: session)
-        onLayer?(uiView.previewLayer)
+        onView?(uiView)
     }
 
     static func dismantleUIView(_ uiView: PreviewView, coordinator: ()) {
-        uiView.previewLayer.session = nil
+        uiView.releaseObservers()
     }
 }
 
@@ -1015,23 +1077,6 @@ final class MotionProbe {
     }
 }
 
-// notify.h is a Darwin C header. The Swift overlay does not declare these symbols.
-@_silgen_name("notify_register_dispatch")
-private func notify_register_dispatch(
-    _ name: UnsafePointer<CChar>,
-    _ outToken: UnsafeMutablePointer<Int32>,
-    _ queue: DispatchQueue,
-    _ handler: @convention(block) (Int32) -> Void
-) -> UInt32
-
-@_silgen_name("notify_get_state")
-private func notify_get_state(_ token: Int32, _ state: UnsafeMutablePointer<UInt64>) -> UInt32
-
-@_silgen_name("notify_cancel")
-private func notify_cancel(_ token: Int32) -> UInt32
-
-private let NOTIFY_STATUS_OK: UInt32 = 0
-
 final class RingerWatch {
     private var token: Int32 = 0
     private var armed = false
@@ -1039,23 +1084,16 @@ final class RingerWatch {
     func start(_ body: @escaping (_ silent: Bool) -> Void) -> Bool {
         stop()
         var registered: Int32 = 0
-        let status = notify_register_dispatch("com.apple.springboard.ringerstate", &registered, DispatchQueue.main) { (token: Int32) in
-            var state: UInt64 = 0
-            _ = notify_get_state(token, &state)
-            body(state == 0)
-        }
-        guard status == NOTIFY_STATUS_OK else { return false }
+        let ok = RingerNotify.watch(on: DispatchQueue.main, handler: body, token: &registered)
+        guard ok else { return false }
         token = registered
         armed = true
-        var state: UInt64 = 0
-        _ = notify_get_state(token, &state)
-        body(state == 0)
         return true
     }
 
     func stop() {
         guard armed else { return }
-        _ = notify_cancel(token)
+        RingerNotify.cancel(token)
         armed = false
         token = 0
     }
@@ -1460,7 +1498,7 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
     var onResult: ((String, String) -> Void)?
     var onActive: (() -> Void)?
 
-    @objc nonisolated func beginFromTap() {
+    @objc func beginFromTap() {
         lock.lock()
         if session != nil {
             lock.unlock()

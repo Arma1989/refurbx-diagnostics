@@ -122,6 +122,7 @@ final class DiagModel: ObservableObject {
     private var volumeLast: Float = -1
     private var volumeToken = 0
     private var volumeTarget: Float = 0.5
+    private var pendingCamera: (() -> Void)?
     private var muteToken = 0
     private var muteSawSound = false
     private var buttonFinishQueued = false
@@ -248,7 +249,7 @@ final class DiagModel: ObservableObject {
                 self.camera.setTorch(true) { _ in }
             }
         case "replay-mute":
-            AudioServicesPlaySystemSound(1104)
+            break
         case "camera-pass":
             let note = currentId == "camera_front"
                 ? "Immagine anteriore confermata"
@@ -334,12 +335,20 @@ final class DiagModel: ObservableObject {
         finishButtonsIfReady()
     }
 
+    func noteCameraPreview(_ view: PreviewView) {
+        camera.holdPreview(view)
+        let start = pendingCamera
+        pendingCamera = nil
+        start?()
+    }
+
     func useLens(_ next: AVCaptureDevice.DeviceType) {
         lens = next
         lensName = Self.lensTitle(next)
         guard currentId == "camera_back" || currentId == "autofocus" else { return }
         if !openedLenses.contains(lensName) { openedLenses.append(lensName) }
         detail = openedLenses.joined(separator: " · ")
+        pendingCamera = nil
         camera.start(front: false, lens: next, scanQR: currentId == "autofocus", onFocus: {}, onCode: { value, box in
             self.acceptQR(value, box)
         }, onRunning: {}, onError: { message in
@@ -381,31 +390,9 @@ final class DiagModel: ObservableObject {
         wave += 1
         outcomes.removeAll { $0.id == id }
         outcomes.append(Outcome(id: id, status: status, note: String(note.prefix(300))))
-        let cameraWasOpen = showCamera
-        let leaveAtOnce = id == "autofocus"
         actions = []
-        cleanup(releaseCamera: cameraWasOpen && !leaveAtOnce)
-        let proceed = { [weak self] in
-            self?.goNext()
-            return
-        }
-        if leaveAtOnce {
-            DispatchQueue.main.async { proceed() }
-            camera.setTorch(false) { _ in }
-            camera.stop()
-            return
-        }
-        guard cameraWasOpen else {
-            DispatchQueue.main.async { proceed() }
-            return
-        }
-        let gate = Once()
-        let go = { gate.run(proceed) }
-        DispatchQueue.main.async {
-            self.camera.setTorch(false) { _ in }
-            self.camera.stop(done: go)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { go() }
+        cleanup(releaseCamera: true)
+        goNext()
     }
 
     func shareText() -> String {
@@ -986,7 +973,7 @@ final class DiagModel: ObservableObject {
             Act(label: "Non risponde", status: "fail", note: up ? "Volume su fermo" : "Volume giù fermo"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
-        armVolumeWatch(target: up ? 0.3 : 0.7)
+        armVolumeWatch(target: 0.5)
     }
 
     private func startButtonBundle() {
@@ -1040,7 +1027,8 @@ final class DiagModel: ObservableObject {
         }
     }
 
-    func holdVolumeView(_ view: MPVolumeView) {
+    func holdVolumeView(_ view: MPVolumeView?) {
+        guard let view else { return }
         let watching = buttonBundle || currentId == "volume_up" || currentId == "volume_down"
         guard watching else { return }
         view.isHidden = false
@@ -1066,41 +1054,49 @@ final class DiagModel: ObservableObject {
 
     private func mountVolumeHost() {
         volumeHost?.removeFromSuperview()
+        volumeHost = nil
         let host = MPVolumeView(frame: CGRect(x: 16, y: 16, width: 200, height: 36))
+        host.showsRouteButton = false
         host.isHidden = false
-        host.alpha = 1
+        host.alpha = 0.02
         host.backgroundColor = .clear
+        host.isUserInteractionEnabled = false
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let windows = scenes.flatMap(\.windows)
-        let window = windows.first(where: \.isKeyWindow)
+        guard let window = windows.first(where: \.isKeyWindow)
             ?? windows.first(where: { $0.windowScene?.activationState == .foregroundActive })
-            ?? windows.first
-        window?.addSubview(host)
+            ?? windows.first else { return }
+        window.addSubview(host)
         host.layoutIfNeeded()
-        host.alpha = 0.02
-        host.isUserInteractionEnabled = false
         volumeHost = host
     }
 
     private func volumeSliders() -> [UISlider] {
         var found: [UISlider] = []
         for host in [volumeCatcher, volumeHost].compactMap({ $0 }) {
-            let direct = host.subviews.compactMap { $0 as? UISlider }
-            if !direct.isEmpty {
-                found.append(contentsOf: direct)
+            found.append(contentsOf: sliders(in: host))
+        }
+        return found
+    }
+
+    private func sliders(in host: MPVolumeView?) -> [UISlider] {
+        guard let host else { return [] }
+        var found: [UISlider] = []
+        for view in host.subviews {
+            if let slider = view as? UISlider {
+                found.append(slider)
                 continue
             }
-            for view in host.subviews {
-                found.append(contentsOf: view.subviews.compactMap { $0 as? UISlider })
-            }
+            found.append(contentsOf: view.subviews.compactMap { $0 as? UISlider })
         }
         return found
     }
 
     private func applyVolume(_ target: Float) {
         volumeArmed = false
+        let clamped = min(1, max(0, target))
         for slider in volumeSliders() {
-            slider.setValue(target, animated: false)
+            slider.setValue(clamped, animated: false)
             slider.sendActions(for: .valueChanged)
         }
     }
@@ -1455,20 +1451,23 @@ final class DiagModel: ObservableObject {
                     return
                 }
                 self.showCamera = true
-                self.camera.start(front: front, lens: self.lens, onFocus: {}, onRunning: {
-                    guard self.still(id) else { return }
-                    self.hint = front
-                        ? "Il volto deve essere in verticale. Conferma solo se l'immagine è pulita e dritta."
-                        : "Cambia obiettivo se ce n'è più di uno. Conferma solo se l'immagine è nitida."
-                    self.detail = front ? "" : self.openedLenses.joined(separator: " · ")
-                    self.actions = [
-                        Act(label: "Immagine ok", status: "camera-pass", note: ""),
-                        Act(label: "Immagine sporca o nera", status: "fail", note: front ? "Camera anteriore non utilizzabile" : "Camera posteriore non utilizzabile"),
-                        Act(label: "Salta", status: "skip", note: "Non eseguito"),
-                    ]
-                }, onError: { message in
-                    self.settle(id, "fail", message)
-                })
+                self.pendingCamera = { [weak self] in
+                    guard let self, self.still(id) else { return }
+                    self.camera.start(front: front, lens: self.lens, onFocus: {}, onRunning: {
+                        guard self.still(id) else { return }
+                        self.hint = front
+                            ? "Il volto deve essere in verticale. Conferma solo se l'immagine è pulita e dritta."
+                            : "Cambia obiettivo se ce n'è più di uno. Conferma solo se l'immagine è nitida."
+                        self.detail = front ? "" : self.openedLenses.joined(separator: " · ")
+                        self.actions = [
+                            Act(label: "Immagine ok", status: "camera-pass", note: ""),
+                            Act(label: "Immagine sporca o nera", status: "fail", note: front ? "Camera anteriore non utilizzabile" : "Camera posteriore non utilizzabile"),
+                            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+                        ]
+                    }, onError: { message in
+                        self.settle(id, "fail", message)
+                    })
+                }
             }
         }
         later(12) {
@@ -1542,19 +1541,22 @@ final class DiagModel: ObservableObject {
                     return
                 }
                 self.showCamera = true
-                self.camera.start(front: false, scanQR: true, onFocus: {}, onCode: { value, box in
-                    self.acceptQR(value, box)
-                }, onRunning: {
-                    guard self.still("autofocus") else { return }
-                    self.hint = "Inquadra un codice QR. Se lo legge, il test è ok."
-                    self.detail = "In attesa del QR"
-                    self.actions = [
-                        Act(label: "Non legge il QR", status: "fail", note: "Il QR non viene letto"),
-                        Act(label: "Salta", status: "skip", note: "Non eseguito"),
-                    ]
-                }, onError: { message in
-                    self.settle("autofocus", "fail", message)
-                })
+                self.pendingCamera = { [weak self] in
+                    guard let self, self.still("autofocus") else { return }
+                    self.camera.start(front: false, scanQR: true, onFocus: {}, onCode: { value, box in
+                        self.acceptQR(value, box)
+                    }, onRunning: {
+                        guard self.still("autofocus") else { return }
+                        self.hint = "Inquadra un codice QR. Se lo legge, il test è ok."
+                        self.detail = "In attesa del QR"
+                        self.actions = [
+                            Act(label: "Non legge il QR", status: "fail", note: "Il QR non viene letto"),
+                            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+                        ]
+                    }, onError: { message in
+                        self.settle("autofocus", "fail", message)
+                    })
+                }
             }
         }
     }
@@ -1567,8 +1569,8 @@ final class DiagModel: ObservableObject {
         qrCaught = true
         detail = "QR letto"
         hint = "QR letto"
-        later(0.28) { [weak self] in
-            guard let self, self.still("autofocus") else { return }
+        later(0.35) {
+            guard self.still("autofocus") else { return }
             self.settle("autofocus", "pass", "QR letto: \(short)")
         }
     }
@@ -1933,6 +1935,7 @@ final class DiagModel: ObservableObject {
         tags.stop()
         playback?.stop()
         playback = nil
+        pendingCamera = nil
         if releaseCamera {
             camera.setTorch(false) { _ in }
             camera.stop()
@@ -2106,12 +2109,3 @@ enum BenchLink {
     }
 }
 
-private final class Once {
-    private var done = false
-
-    func run(_ body: () -> Void) {
-        if done { return }
-        done = true
-        body()
-    }
-}
