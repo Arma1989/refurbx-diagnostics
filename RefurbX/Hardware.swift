@@ -1041,21 +1041,21 @@ final class RingerWatch {
         var registered: Int32 = 0
         let status = notify_register_dispatch("com.apple.springboard.ringerstate", &registered, DispatchQueue.main) { (token: Int32) in
             var state: UInt64 = 0
-            notify_get_state(token, &state)
+            _ = notify_get_state(token, &state)
             body(state == 0)
         }
         guard status == NOTIFY_STATUS_OK else { return false }
         token = registered
         armed = true
         var state: UInt64 = 0
-        notify_get_state(token, &state)
+        _ = notify_get_state(token, &state)
         body(state == 0)
         return true
     }
 
     func stop() {
         guard armed else { return }
-        notify_cancel(token)
+        _ = notify_cancel(token)
         armed = false
         token = 0
     }

@@ -484,6 +484,7 @@ private final class GradeHost: UIView {
         endObserver = NotificationCenter.default.addObserver(forName: endName, object: item, queue: .main) { [weak player] _ in
             player?.seek(to: .zero)
             player?.play()
+            return
         }
         player.play()
     }

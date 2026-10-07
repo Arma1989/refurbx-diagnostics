@@ -387,6 +387,7 @@ final class DiagModel: ObservableObject {
         cleanup(releaseCamera: cameraWasOpen && !leaveAtOnce)
         let proceed = { [weak self] in
             self?.goNext()
+            return
         }
         if leaveAtOnce {
             DispatchQueue.main.async { proceed() }
@@ -1196,6 +1197,7 @@ final class DiagModel: ObservableObject {
         hint = "Premi il tasto laterale finché lo schermo si spegne, poi riaccendilo e torna nell'app."
         watch(UIApplication.protectedDataWillBecomeUnavailableNotification) { [weak self] in
             self?.sawLock = true
+            return
         }
         actions = [
             Act(label: "Non spegne", status: "fail", note: "Il tasto laterale non spegne lo schermo"),
@@ -1343,6 +1345,7 @@ final class DiagModel: ObservableObject {
         ]
         watch(UIDevice.batteryStateDidChangeNotification) { [weak self] in
             self?.noteWireless()
+            return
         }
         noteWireless()
         armWirelessPoll()
@@ -1386,6 +1389,7 @@ final class DiagModel: ObservableObject {
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         face.run { [weak self] status, note in
             self?.settle("biometrics", status, note)
+            return
         }
         later(25) {
             guard self.still("biometrics") else { return }
@@ -1655,9 +1659,11 @@ final class DiagModel: ObservableObject {
         ]
         camera.start(front: true, onFocus: {}, onRunning: {}, onError: { [weak self] _ in
             self?.pollLight()
+            return
         }, onMeter: { [weak self] raw in
             self?.lightUsesFrames = true
             self?.noteAmbient(raw)
+            return
         })
         later(1.5) {
             guard self.still("light"), self.lightFrames == 0 else { return }
