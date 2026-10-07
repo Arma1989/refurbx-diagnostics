@@ -1380,7 +1380,7 @@ final class NfcOpenController: UIViewController {
         button.layer.masksToBounds = true
         button.accessibilityLabel = title
         button.isUserInteractionEnabled = true
-        button.addTarget(self, action: #selector(openReader), for: .touchUpInside)
+        button.addTarget(self, action: #selector(openReader), for: .touchDown)
     }
 
     required init?(coder: NSCoder) {

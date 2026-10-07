@@ -917,7 +917,6 @@ final class PreviewView: UIView {
     override func willMove(toWindow newWindow: UIWindow?) {
         super.willMove(toWindow: newWindow)
         if newWindow == nil {
-            previewLayer.connection?.isEnabled = false
             releaseObservers()
         }
     }
@@ -1489,6 +1488,29 @@ enum DiskProbe {
     }
 }
 
+enum SignedNfc {
+    static func profile() -> (name: String, formats: [String]) {
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url),
+              let text = String(data: data, encoding: .isoLatin1),
+              let start = text.range(of: "<?xml"),
+              let end = text.range(of: "</plist>") else {
+            return ("", [])
+        }
+        let xml = String(text[start.lowerBound..<end.upperBound])
+        guard let raw = xml.data(using: .utf8),
+              let plist = try? PropertyListSerialization.propertyList(from: raw, format: nil) as? [String: Any] else {
+            return ("", [])
+        }
+        let name = plist["Name"] as? String ?? ""
+        let entitlements = plist["Entitlements"] as? [String: Any] ?? [:]
+        let value = entitlements["com.apple.developer.nfc.readersession.formats"]
+        if let one = value as? String { return (name, [one]) }
+        if let many = value as? [String] { return (name, many) }
+        return (name, [])
+    }
+}
+
 final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
     private var session: NFCTagReaderSession?
     private var reported = false
@@ -1517,7 +1539,6 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
             finish("absent", "Lettura NFC non disponibile", token: token)
             return
         }
-        opened.alertMessage = "Tieni la scheda ferma sul retro, in alto."
         lock.lock()
         if self.session != nil || token != generation {
             lock.unlock()
@@ -1542,6 +1563,7 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
 
     func tagReaderSessionDidBecomeActive(_ session: NFCTagReaderSession) {
         guard session === self.session else { return }
+        session.alertMessage = "Tieni la scheda ferma sul retro, in alto."
         let callback = onActive
         DispatchQueue.main.async { callback?() }
     }
@@ -1607,7 +1629,16 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
             && nsError.code == NFCReaderError.Code.readerErrorSecurityViolation.rawValue
         let appleMissingEntitlement = raw.range(of: "Missing required entitlement", options: .caseInsensitive) != nil
         if securityViolation || appleMissingEntitlement {
-            finish("closed", "Manca il permesso NFC TAG nella firma dell'app.", token: token)
+            let signed = SignedNfc.profile()
+            let note: String
+            if signed.formats.contains("TAG") {
+                note = "Il profilo \(signed.name) contiene TAG, ma iOS non lo vede nella firma DER."
+            } else if signed.name.isEmpty {
+                note = "Manca il permesso NFC TAG nella firma dell'app."
+            } else {
+                note = "Il profilo \(signed.name) non contiene TAG. Su Apple Developer eliminalo e rifallo con NFC Tag Reading."
+            }
+            finish("closed", note, token: token)
             return
         }
         finish("closed", raw.isEmpty ? "La finestra NFC si è chiusa. Premi Apri lettore tag." : raw, token: token)
