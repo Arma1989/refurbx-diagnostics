@@ -92,7 +92,23 @@ final class DiagModel: ObservableObject {
     let camera = CameraSession()
 
     init() {
+        adoptCableLink()
         canResume = Self.loadRun() != nil
+    }
+
+    private func adoptCableLink() {
+        let fromArgs = ProcessInfo.processInfo.arguments.first { $0.hasPrefix("https://") || $0.hasPrefix("http://") }
+        if let fromArgs, BenchLink.parse(fromArgs) != nil {
+            benchLink = fromArgs
+            UserDefaults.standard.set(fromArgs, forKey: "refurbx.bench-link")
+            return
+        }
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let file = docs.appendingPathComponent("bench.url")
+        guard let text = try? String(contentsOf: file, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
+              BenchLink.parse(text) != nil else { return }
+        benchLink = text
+        UserDefaults.standard.set(text, forKey: "refurbx.bench-link")
     }
     private let tone = TonePlayer()
     private let mic = MicProbe()
