@@ -741,7 +741,7 @@ private struct ReportScreen: View {
                             .font(.system(size: 13, weight: .semibold))
                             .tracking(0.8)
                             .foregroundStyle(cyan)
-                        Text("Incolla il link che vedi sul computer, sotto il codice.")
+                        Text("Col cavo il banco si collega da solo. Se manca, incolla il link sotto il codice.")
                             .font(.system(size: 15))
                             .foregroundStyle(Look.ink)
                         TextField("https://…/t/CODICE", text: $model.benchLink)

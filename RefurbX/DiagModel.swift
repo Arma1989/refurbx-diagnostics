@@ -91,24 +91,47 @@ final class DiagModel: ObservableObject {
 
     let camera = CameraSession()
 
+    private var cableWatch: Timer?
+
     init() {
         adoptCableLink()
         canResume = Self.loadRun() != nil
+        startCableWatch()
+    }
+
+    private func startCableWatch() {
+        cableWatch?.invalidate()
+        cableWatch = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.adoptCableLink()
+                self?.flushOutbox()
+            }
+        }
     }
 
     private func adoptCableLink() {
-        let fromArgs = ProcessInfo.processInfo.arguments.first { $0.hasPrefix("https://") || $0.hasPrefix("http://") }
-        if let fromArgs, BenchLink.parse(fromArgs) != nil {
-            benchLink = fromArgs
-            UserDefaults.standard.set(fromArgs, forKey: "refurbx.bench-link")
-            return
-        }
         guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         let file = docs.appendingPathComponent("bench.url")
-        guard let text = try? String(contentsOf: file, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
-              BenchLink.parse(text) != nil else { return }
-        benchLink = text
-        UserDefaults.standard.set(text, forKey: "refurbx.bench-link")
+        if let text = try? String(contentsOf: file, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
+           BenchLink.parse(text) != nil {
+            if benchLink != text {
+                benchLink = text
+                UserDefaults.standard.set(text, forKey: "refurbx.bench-link")
+            }
+            return
+        }
+        let fromArgs = ProcessInfo.processInfo.arguments.first { $0.hasPrefix("https://") || $0.hasPrefix("http://") }
+        if let fromArgs, BenchLink.parse(fromArgs) != nil, benchLink != fromArgs {
+            benchLink = fromArgs
+            UserDefaults.standard.set(fromArgs, forKey: "refurbx.bench-link")
+        }
+    }
+
+    private func flushOutbox() {
+        guard !outcomes.isEmpty else { return }
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        guard let data = try? JSONSerialization.data(withJSONObject: benchPayload()) else { return }
+        try? data.write(to: docs.appendingPathComponent("outbox.json"), options: .atomic)
     }
     private let tone = TonePlayer()
     private let mic = MicProbe()
@@ -458,6 +481,7 @@ final class DiagModel: ObservableObject {
             return
         }
         UserDefaults.standard.set(raw, forKey: "refurbx.bench-link")
+        flushOutbox()
         benchSending = true
         benchState = "Invio al banco…"
         let payload = benchPayload()
