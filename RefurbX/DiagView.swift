@@ -489,11 +489,11 @@ private struct GradeFilm: View {
 
     var body: some View {
         ZStack {
-            Color.black
+            Color.white
             if GradeClip.file(for: id) == nil {
                 Text("Video non trovato")
                     .font(Look.text(17, .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Look.title)
                     .multilineTextAlignment(.center)
                     .padding(16)
             } else {
@@ -525,7 +525,7 @@ private final class GradeHost: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .black
+        backgroundColor = .white
         clipsToBounds = true
         videoLayer.videoGravity = .resizeAspect
         layer.addSublayer(videoLayer)
@@ -533,7 +533,7 @@ private final class GradeHost: UIView {
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        backgroundColor = .black
+        backgroundColor = .white
         clipsToBounds = true
         videoLayer.videoGravity = .resizeAspect
         layer.addSublayer(videoLayer)
@@ -1516,7 +1516,7 @@ private struct ButtonTrio: View {
         HStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .stroke(mark == "pass" ? Look.pass : (mark == "fail" ? Look.fail : Color.white.opacity(0.28)), lineWidth: 2)
+                    .stroke(mark == "pass" ? Look.pass : (mark == "fail" ? Look.fail : Look.title.opacity(0.35)), lineWidth: 2)
                     .frame(width: 44, height: 44)
                 if mark == "pass" {
                     Text("V")
@@ -1535,7 +1535,7 @@ private struct ButtonTrio: View {
                 if let live {
                     Text(live)
                         .font(Look.text(28, .bold))
-                        .foregroundStyle(live == "Silenzioso" ? Look.pass : .white)
+                        .foregroundStyle(live == "Silenzioso" ? Look.pass : Look.title)
                         .minimumScaleFactor(0.6)
                         .lineLimit(1)
                 }
@@ -1552,7 +1552,8 @@ private struct ButtonTrio: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(Look.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Look.line, lineWidth: 1))
     }
 }
 
@@ -1924,14 +1925,14 @@ private struct CompassRing: View {
     private func dial(_ side: CGFloat) -> some View {
         let radius = side / 2
         return ZStack {
-            Circle().fill(Color.white.opacity(0.04))
-            Circle().stroke(Color.white.opacity(0.22), lineWidth: 2)
-            Circle().stroke(Color.white.opacity(0.08), lineWidth: side * 0.045).padding(side * 0.03)
+            Circle().fill(Color.white)
+            Circle().stroke(Look.title.opacity(0.45), lineWidth: 2)
+            Circle().stroke(Look.title.opacity(0.12), lineWidth: side * 0.045).padding(side * 0.03)
             ZStack {
                 ForEach(0..<72, id: \.self) { tick in
                     let major = tick % 6 == 0
                     Capsule()
-                        .fill(Color.white.opacity(major ? 0.92 : 0.3))
+                        .fill(Look.title.opacity(major ? 0.9 : 0.35))
                         .frame(width: major ? 2 : 1, height: major ? side * 0.05 : side * 0.026)
                         .offset(y: -(radius - side * 0.05))
                         .rotationEffect(.degrees(Double(tick) * 5))
@@ -1941,7 +1942,7 @@ private struct CompassRing: View {
                         Text("\(step * 30)")
                             .font(.system(size: side * 0.042, weight: .medium))
                             .monospacedDigit()
-                            .foregroundStyle(Color.white.opacity(0.72))
+                            .foregroundStyle(Look.ink)
                             .offset(y: -(radius - side * 0.15))
                             .rotationEffect(.degrees(Double(step) * 30))
                     }
@@ -1950,13 +1951,13 @@ private struct CompassRing: View {
                     let letter = ["N", "E", "S", "O"][index]
                     Text(letter)
                         .font(.system(size: letter == "N" ? side * 0.075 : side * 0.052, weight: .bold))
-                        .foregroundStyle(letter == "N" ? Look.fail : .white)
+                        .foregroundStyle(letter == "N" ? Look.fail : Look.title)
                         .offset(y: -(radius - side * 0.15))
                         .rotationEffect(.degrees(Double(index) * 90))
                 }
                 ForEach(0..<8, id: \.self) { index in
                     Circle()
-                        .fill(marks.contains(index) ? Look.pass : Color.white.opacity(0.18))
+                        .fill(marks.contains(index) ? Look.pass : Look.title.opacity(0.28))
                         .frame(width: side * 0.028, height: side * 0.028)
                         .offset(y: -(radius - side * 0.25))
                         .rotationEffect(.degrees(Double(index) * 45))
@@ -1968,9 +1969,9 @@ private struct CompassRing: View {
                 .frame(width: side * 0.048, height: side * 0.038)
                 .offset(y: -(radius - side * 0.02))
             Circle()
-                .fill(Look.navy.opacity(0.94))
+                .fill(Color.white)
                 .frame(width: side * 0.36, height: side * 0.36)
-                .overlay(Circle().stroke(Color.white.opacity(0.14), lineWidth: 1))
+                .overlay(Circle().stroke(Look.cyan, lineWidth: 2))
             VStack(spacing: 0) {
                 Text(String(format: "%03.0f°", rose))
                     .font(.system(size: side * 0.1, weight: .semibold))

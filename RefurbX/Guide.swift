@@ -504,12 +504,12 @@ private struct DemoScene: View {
     private var compassDemo: some View {
         let turn = -loop * 360
         return ZStack {
-            Circle().stroke(Color.white.opacity(0.28), lineWidth: 2).frame(width: 150, height: 150)
+            Circle().stroke(Look.title.opacity(0.4), lineWidth: 2).frame(width: 150, height: 150)
             ZStack {
                 ForEach(0..<12, id: \.self) { tick in
                     let major = tick % 3 == 0
                     Capsule()
-                        .fill(Color.white.opacity(major ? 0.9 : 0.35))
+                        .fill(Look.title.opacity(major ? 0.9 : 0.35))
                         .frame(width: major ? 2 : 1, height: major ? 12 : 7)
                         .offset(y: -68)
                         .rotationEffect(.degrees(Double(tick) * 30))

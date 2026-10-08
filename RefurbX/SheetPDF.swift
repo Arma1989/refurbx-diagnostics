@@ -18,15 +18,14 @@ enum SheetPDF {
         let page = CGRect(x: 0, y: 0, width: 595, height: 842)
         let renderer = UIGraphicsPDFRenderer(bounds: page)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("RefurbX-scheda.pdf")
-        let navy = UIColor(red: 0.043, green: 0.059, blue: 0.145, alpha: 1)
-        let ink = UIColor(red: 0.12, green: 0.14, blue: 0.2, alpha: 1)
-        let mute = UIColor(red: 0.35, green: 0.38, blue: 0.46, alpha: 1)
+        let ink = UIColor(red: 37.0 / 255, green: 61.0 / 255, blue: 78.0 / 255, alpha: 1)
+        let mute = UIColor(red: 37.0 / 255, green: 61.0 / 255, blue: 78.0 / 255, alpha: 0.55)
         let when = formatted(facts.when)
         do {
             try renderer.writePDF(to: url) { context in
                 context.beginPage()
                 UIGraphicsPushContext(context.cgContext)
-                var y = drawHeader(navy: navy, when: when, device: facts.device)
+                var y = drawHeader(ink: ink, mute: mute, when: when, device: facts.device)
                 y = drawBlock("GRADO ESTETICO", facts.grade, facts.title, facts.line, y: y, ink: ink, mute: mute)
                 y += 16
                 y = ensure(y, gap: 28, context: context, page: page)
@@ -86,11 +85,11 @@ enum SheetPDF {
         return formatter.string(from: date)
     }
 
-    private static func drawHeader(navy: UIColor, when: String, device: String) -> CGFloat {
+    private static func drawHeader(ink: UIColor, mute: UIColor, when: String, device: String) -> CGFloat {
         let headerHeight: CGFloat = 108
-        navy.setFill()
+        UIColor.white.setFill()
         UIBezierPath(rect: CGRect(x: 0, y: 0, width: 595, height: headerHeight)).fill()
-        let cyan = UIColor(red: 0.48, green: 0.84, blue: 1, alpha: 1)
+        let cyan = UIColor(red: 11.0 / 255, green: 169.0 / 255, blue: 237.0 / 255, alpha: 1)
         cyan.setFill()
         UIBezierPath(rect: CGRect(x: 0, y: headerHeight - 2, width: 595, height: 2)).fill()
 
@@ -106,29 +105,27 @@ enum SheetPDF {
             textX = 116
         }
 
-        let white = UIColor.white
-        let faded = UIColor.white.withAlphaComponent(0.78)
         let maxWidth = 595 - textX - 28
         let block = CGRect(x: textX, y: 28, width: maxWidth, height: 56)
         ("Scheda diagnostica" as NSString).draw(
             in: CGRect(x: block.minX, y: block.minY, width: maxWidth, height: 24),
             withAttributes: [
                 .font: UIFont.systemFont(ofSize: 18, weight: .semibold),
-                .foregroundColor: white,
+                .foregroundColor: ink,
             ]
         )
         (when as NSString).draw(
             in: CGRect(x: block.minX, y: block.minY + 26, width: maxWidth, height: 14),
             withAttributes: [
                 .font: UIFont.systemFont(ofSize: 10, weight: .regular),
-                .foregroundColor: faded,
+                .foregroundColor: mute,
             ]
         )
         (device as NSString).draw(
             in: CGRect(x: block.minX, y: block.minY + 40, width: maxWidth, height: 14),
             withAttributes: [
                 .font: UIFont.systemFont(ofSize: 10, weight: .regular),
-                .foregroundColor: faded,
+                .foregroundColor: mute,
             ]
         )
         return headerHeight + 22
@@ -161,7 +158,7 @@ enum SheetPDF {
             let ratio = logo.size.width / max(logo.size.height, 1)
             logo.draw(in: CGRect(x: 36, y: 16, width: height * ratio, height: height))
         }
-        UIColor(red: 0.043, green: 0.059, blue: 0.145, alpha: 1).setFill()
+        UIColor(red: 37.0 / 255, green: 61.0 / 255, blue: 78.0 / 255, alpha: 0.16).setFill()
         UIBezierPath(rect: CGRect(x: 36, y: 50, width: 523, height: 1)).fill()
         return 64
     }

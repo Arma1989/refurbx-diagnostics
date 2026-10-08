@@ -284,10 +284,6 @@ final class DiagModel: ObservableObject {
             AudioRoute.speaker()
             playback?.currentTime = 0
             playback?.play()
-        case "replay-flash":
-            camera.setTorch(false) { _ in
-                self.camera.setTorch(true) { _ in }
-            }
         case "replay-mute":
             break
         case "camera-pass":
@@ -306,6 +302,10 @@ final class DiagModel: ObservableObject {
             readNetwork()
         case "bt-retry":
             startBluetooth()
+        case "open-wifi":
+            openRadio("WIFI")
+        case "open-bluetooth":
+            openRadio("Bluetooth")
         case "open-settings":
             if let url = URL(string: UIApplication.openSettingsURLString) {
                 UIApplication.shared.open(url)
@@ -332,8 +332,38 @@ final class DiagModel: ObservableObject {
     }
 
     func onScenePhase(_ phase: ScenePhase) {
-        if phase == .active, currentId == "gps", !settled {
+        guard phase == .active, !settled else { return }
+        if currentId == "gps" {
             place.requestFix()
+        }
+        if keyOk { return }
+        if currentId == "network" {
+            readNetwork()
+        } else if currentId == "bluetooth" {
+            startBluetooth()
+        }
+    }
+
+    private func openRadio(_ page: String) {
+        openRadioCandidates(["App-Prefs:\(page)", "App-prefs:root=\(page)", "prefs:root=\(page)"], index: 0)
+    }
+
+    private func openRadioCandidates(_ raw: [String], index: Int) {
+        if index >= raw.count {
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+            return
+        }
+        guard let url = URL(string: raw[index]) else {
+            openRadioCandidates(raw, index: index + 1)
+            return
+        }
+        UIApplication.shared.open(url, options: [:]) { [weak self] opened in
+            guard !opened else { return }
+            Task { @MainActor in
+                self?.openRadioCandidates(raw, index: index + 1)
+            }
         }
     }
 
@@ -839,8 +869,9 @@ final class DiagModel: ObservableObject {
             } else {
                 self.keyOk = false
                 self.detail = "Wi-Fi non collegato"
-                self.hint = "Collega il Wi-Fi e riprova."
+                self.hint = "Apri il Wi-Fi, accendilo e torna qui: il controllo riparte da solo."
                 self.actions = [
+                    Act(label: "Apri Wi-Fi", status: "open-wifi", note: ""),
                     Act(label: "Riprova", status: "wifi-retry", note: ""),
                     Act(label: "Salta", status: "skip", note: "Non eseguito"),
                 ]
@@ -1518,10 +1549,10 @@ final class DiagModel: ObservableObject {
             self.detail = denied ? "Permesso negato" : "Bluetooth spento"
             self.hint = denied
                 ? "In Impostazioni consenti il Bluetooth a RefurbX, poi riprova."
-                : "Accendi il Bluetooth e riprova."
+                : "Apri il Bluetooth, accendilo e torna qui: il controllo riparte da solo."
             self.actions = [
                 Act(label: "Riprova", status: "bt-retry", note: ""),
-                Act(label: denied ? "Apri Impostazioni" : "Non funziona", status: denied ? "open-settings" : "fail", note: denied ? "" : "Bluetooth spento"),
+                Act(label: denied ? "Apri Impostazioni" : "Apri Bluetooth", status: denied ? "open-settings" : "open-bluetooth", note: ""),
                 Act(label: "Salta", status: "skip", note: "Non eseguito"),
             ]
         }
@@ -1604,7 +1635,6 @@ final class DiagModel: ObservableObject {
                         self.actions = [
                             Act(label: "Si vede", status: "pass", note: "Flash acceso"),
                             Act(label: "Non si accende", status: "fail", note: "Flash spento o debole"),
-                            Act(label: "Spegni e riaccendi", status: "replay-flash", note: ""),
                             Act(label: "Salta", status: "skip", note: "Non eseguito"),
                         ]
                     }
