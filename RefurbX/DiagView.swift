@@ -43,7 +43,7 @@ struct DiagView: View {
         .onChange(of: scenePhase) { _, phase in
             model.onScenePhase(phase)
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
     }
 }
 
@@ -78,13 +78,13 @@ private struct IntroScreen: View {
                     .padding(.leading, -8)
                     .accessibilityLabel("RefurbX")
                 Text("DIAGNOSTICA")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Look.text(12, .semibold))
                     .tracking(1.8)
                     .foregroundStyle(cyan)
                     .padding(.leading, 4)
             }
             Text("Tocca un quadrato per aprire la sezione. Dentro, tocca una prova e parte subito.")
-                .font(.system(size: 17))
+                .font(Look.text(17))
                 .foregroundStyle(Look.ink)
             if canResume {
                 BenchButton(title: "Riprendi la scheda", kind: .secondary, action: resume)
@@ -92,7 +92,6 @@ private struct IntroScreen: View {
             BenchButton(title: "Tutti i test · \(HardwareFit.rows(in: nil).count)", action: startAll)
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    RefurbBanner()
                     LazyVGrid(columns: benchColumns, spacing: 12) {
                         ForEach(Catalog.groups.filter { !HardwareFit.rows(in: $0).isEmpty }, id: \.self) { group in
                             let count = HardwareFit.rows(in: group).count
@@ -107,8 +106,8 @@ private struct IntroScreen: View {
                     }
                     if !HardwareFit.lockedRows.isEmpty {
                         Text("Non su questo modello")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color.white.opacity(0.38))
+                            .font(Look.text(13, .semibold))
+                            .foregroundStyle(Look.mute)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.top, 4)
                         LazyVGrid(columns: benchColumns, spacing: 12) {
@@ -122,6 +121,7 @@ private struct IntroScreen: View {
                             }
                         }
                     }
+                    RefurbBanner()
                 }
                 .padding(.bottom, 12)
             }
@@ -147,9 +147,9 @@ private struct SectionScreen: View {
             Button(action: back) {
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(Look.text(15, .semibold))
                     Text("Indietro")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(Look.text(17, .semibold))
                     Spacer(minLength: 0)
                 }
                 .foregroundStyle(cyan)
@@ -158,10 +158,10 @@ private struct SectionScreen: View {
             .buttonStyle(.plain)
             VStack(alignment: .leading, spacing: 4) {
                 Text(Catalog.homeTitle(group))
-                    .font(.system(size: 32, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .font(Look.text(32, .semibold))
+                    .foregroundStyle(Look.title)
                 Text("Tocca un quadrato: parte solo quel test.")
-                    .font(.system(size: 16))
+                    .font(Look.text(16))
                     .foregroundStyle(Look.ink)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -176,8 +176,8 @@ private struct SectionScreen: View {
                     }
                     if !locked.isEmpty {
                         Text("Non su questo modello")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color.white.opacity(0.38))
+                            .font(Look.text(13, .semibold))
+                            .foregroundStyle(Look.mute)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         LazyVGrid(columns: benchColumns, spacing: 12) {
                             ForEach(locked, id: \.id) { row in
@@ -219,55 +219,49 @@ private let benchColumns = [GridItem(.adaptive(minimum: 148), spacing: 12)]
 private struct RefurbBanner: View {
     @Environment(\.openURL) private var openURL
 
+    private let links: [(symbol: String, title: String, href: String)] = [
+        ("iphone", "Vuoi vendere il tuo iPhone?", "https://refurbx.eu/ritiro-usato"),
+        ("storefront", "Vuoi vendere nel nostro marketplace?", "https://refurbx.eu/refurbx/annunci-locali"),
+        ("bag", "Vuoi acquistare un iPhone?", "https://refurbx.eu/products"),
+    ]
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 12) {
-                Image("Mark")
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 48, height: 48)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("REFURBX")
-                        .font(.system(size: 11, weight: .semibold))
-                        .tracking(1.4)
-                        .foregroundStyle(cyan)
-                    Text("Vuoi vendere il tuo iPhone?")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Scopri RefurbX")
+                .font(Look.text(18, .semibold))
+                .foregroundStyle(Look.title)
+            VStack(spacing: 8) {
+                ForEach(links, id: \.href) { link in
+                    Button {
+                        if let url = URL(string: link.href) { openURL(url) }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: link.symbol)
+                                .font(Look.text(16, .semibold))
+                                .foregroundStyle(Look.cyan)
+                                .frame(width: 36, height: 36)
+                                .background(Look.banner, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            Text(link.title)
+                                .font(Look.text(15, .semibold))
+                                .foregroundStyle(Look.title)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Image(systemName: "chevron.right")
+                                .font(Look.text(13, .bold))
+                                .foregroundStyle(Look.cyan)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(link.title)
                 }
             }
-            Text("Vendilo sul marketplace, oppure acquista un usato originale.")
-                .font(.system(size: 15))
-                .foregroundStyle(Look.ink)
-                .fixedSize(horizontal: false, vertical: true)
-            Button {
-                if let url = URL(string: "https://www.refurbx.eu") {
-                    openURL(url)
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Text("Vai su refurbx.eu")
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 13, weight: .bold))
-                }
-                .font(.system(size: 16, weight: .semibold))
-                .frame(maxWidth: .infinity, minHeight: 48)
-                .foregroundStyle(navy)
-                .background(cyan, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Apri il sito RefurbX")
         }
-        .padding(16)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Look.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Look.line, lineWidth: 1)
-        )
+        .background(Look.banner, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
@@ -293,29 +287,29 @@ private struct BenchSquare: View {
     private var face: some View {
         VStack(spacing: 8) {
             Image(systemName: symbol)
-                .font(.system(size: 32, weight: .semibold))
-                .foregroundStyle(locked ? Color.white.opacity(0.28) : cyan)
+                .font(Look.text(32, .semibold))
+                .foregroundStyle(locked ? Look.mute : cyan)
             Text(title)
-                .font(.system(size: 15, weight: .semibold))
+                .font(Look.text(15, .semibold))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)
             if !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(locked ? Color.white.opacity(0.4) : Look.mute)
+                    .font(Look.text(11, .semibold))
+                    .foregroundStyle(locked ? Look.mute : Look.mute)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
         }
-        .foregroundStyle(locked ? Color.white.opacity(0.32) : .white)
+        .foregroundStyle(locked ? Look.mute : Look.title)
         .padding(10)
         .frame(maxWidth: .infinity)
         .aspectRatio(1, contentMode: .fit)
-        .background(locked ? Color.white.opacity(0.03) : Look.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(locked ? Look.paper : Look.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(locked ? Color.white.opacity(0.06) : cyan.opacity(0.4), lineWidth: 1)
+                .stroke(locked ? Look.line : cyan.opacity(0.4), lineWidth: 1)
         )
     }
 }
@@ -334,7 +328,7 @@ private struct RunScreen: View {
             )
             if !model.detail.isEmpty {
                 Text(model.detail)
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(Look.text(17, .semibold))
                     .foregroundStyle(cyan)
             }
             stage
@@ -368,8 +362,8 @@ private struct RunScreen: View {
             MemoryBoard(total: model.memoryTotal, free: model.memoryFree, used: model.memoryUsed)
         } else if model.currentId == "identity" {
             Text(model.detail.isEmpty ? "Lettura del modello" : model.detail)
-                .font(.system(size: 28, weight: .semibold))
-                .foregroundStyle(.white)
+                .font(Look.text(28, .semibold))
+                .foregroundStyle(Look.title)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else if model.currentId == "network" || model.currentId == "bluetooth" {
@@ -427,16 +421,16 @@ private struct RunScreen: View {
             PencilPad { model.notePencil() }
                 .overlay {
                     Text("Scrivi con la penna")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .font(Look.text(17, .semibold))
+                        .foregroundStyle(Look.title)
                         .allowsHitTesting(false)
                 }
         } else if model.currentId == "force" {
             ForcePad { model.noteForce($0, max: $1) }
                 .overlay {
                     Text("\(Int((model.forceUnit * 100).rounded()))")
-                        .font(.system(size: 56, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .font(Look.text(56, .semibold))
+                        .foregroundStyle(Look.title)
                         .allowsHitTesting(false)
                 }
         } else if model.showCamera {
@@ -498,7 +492,7 @@ private struct GradeFilm: View {
             Color.black
             if GradeClip.file(for: id) == nil {
                 Text("Video non trovato")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(Look.text(17, .semibold))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .padding(16)
@@ -610,12 +604,12 @@ private struct ReportScreen: View {
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("SCHEDA")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(Look.text(12, .semibold))
                             .tracking(1.4)
                             .foregroundStyle(cyan)
                         if let when = model.testedAt {
                             Text(Self.stamp.string(from: when))
-                                .font(.system(size: 14))
+                                .font(Look.text(14))
                                 .foregroundStyle(Look.mute)
                                 .lineLimit(1)
                         }
@@ -625,42 +619,42 @@ private struct ReportScreen: View {
                 BenchCard {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("GRADO ESTETICO")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(Look.text(13, .semibold))
                             .tracking(0.8)
                             .foregroundStyle(cyan)
                         Text(choice?.id ?? "—")
-                            .font(.system(size: 64, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .font(Look.text(64, .semibold))
+                            .foregroundStyle(Look.title)
                         Text(choice?.title ?? "Scegli l'aspetto del dispositivo")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .font(Look.text(22, .semibold))
+                            .foregroundStyle(Look.title)
                         Text(choice?.line ?? "Il grado della scheda è quello estetico di RefurbX: A+, A, B o C. I test funzionali restano elencati sotto.")
-                            .font(.system(size: 16))
+                            .font(Look.text(16))
                             .foregroundStyle(Look.ink)
                         Text(functionLine)
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(Look.text(14, .semibold))
                             .foregroundStyle(Look.mute)
                     }
                 }
                 Text("Tocca A+, A, B o C: l'esempio parte da solo, senza play.")
-                    .font(.system(size: 16))
+                    .font(Look.text(16))
                     .foregroundStyle(Look.ink)
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                     ForEach(Cosmetic.choices, id: \.id) { item in
                         Button(action: { model.chooseLook(item.id) }) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(item.id)
-                                    .font(.system(size: 28, weight: .semibold))
+                                    .font(Look.text(28, .semibold))
                                 Text(item.title)
-                                    .font(.system(size: 15, weight: .semibold))
+                                    .font(Look.text(15, .semibold))
                                 Text(item.line)
-                                    .font(.system(size: 12))
+                                    .font(Look.text(12))
                                     .foregroundStyle(Look.ink)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(12)
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Look.title)
                             .background(model.lookGrade == item.id ? cyan.opacity(0.16) : Look.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(model.lookGrade == item.id ? cyan : Look.line, lineWidth: model.lookGrade == item.id ? 2 : 1))
                         }
@@ -674,27 +668,27 @@ private struct ReportScreen: View {
                         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(Look.line, lineWidth: 1))
                     Text("Esempio \(choice.id) · \(choice.title)")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(Look.text(13, .semibold))
                         .foregroundStyle(Look.mute)
                 }
                 BenchCard {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("IN DOTAZIONE")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(Look.text(13, .semibold))
                             .tracking(0.8)
                             .foregroundStyle(cyan)
                         Toggle("Cavo", isOn: Binding(get: { model.withCable }, set: { model.setCable($0) }))
                             .tint(cyan)
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Look.title)
                         Toggle("Scatola", isOn: Binding(get: { model.withBox }, set: { model.setBox($0) }))
                             .tint(cyan)
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Look.title)
                     }
                 }
                 ForEach(grouped) { section in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(section.title.uppercased())
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(Look.text(13, .semibold))
                             .tracking(0.8)
                             .foregroundStyle(cyan)
                             .padding(.top, 6)
@@ -713,9 +707,9 @@ private struct ReportScreen: View {
                 }
                 if model.showsLocked && !model.lockedRows.isEmpty {
                     Text("NON SU QUESTO MODELLO")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(Look.text(13, .semibold))
                         .tracking(0.8)
-                        .foregroundStyle(Color.white.opacity(0.38))
+                        .foregroundStyle(Look.mute)
                         .padding(.top, 6)
                     BenchCard {
                         VStack(alignment: .leading, spacing: 0) {
@@ -724,9 +718,9 @@ private struct ReportScreen: View {
                                     Text(row.title)
                                     Spacer()
                                     Text("Non disponibile")
-                                        .font(.system(size: 13, weight: .semibold))
+                                        .font(Look.text(13, .semibold))
                                 }
-                                .foregroundStyle(Color.white.opacity(0.35))
+                                .foregroundStyle(Look.mute)
                                 .padding(.vertical, 10)
                                 if offset < model.lockedRows.count - 1 {
                                     Rectangle().fill(Look.line).frame(height: 1)
@@ -738,50 +732,51 @@ private struct ReportScreen: View {
                 BenchCard {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("BANCO")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(Look.text(13, .semibold))
                             .tracking(0.8)
                             .foregroundStyle(cyan)
-                        Text("Col cavo il banco si collega da solo. Se manca, incolla il link sotto il codice.")
-                            .font(.system(size: 15))
+                        Text("Col cavo il banco si collega da solo. Se manca, scrivi solo il codice di sei lettere.")
+                            .font(Look.text(15))
                             .foregroundStyle(Look.ink)
-                        TextField("https://…/t/CODICE", text: $model.benchLink)
-                            .textInputAutocapitalization(.never)
+                        TextField("Q2DRA7", text: $model.benchLink)
+                            .textInputAutocapitalization(.characters)
                             .autocorrectionDisabled()
-                            .keyboardType(.URL)
+                            .keyboardType(.asciiCapable)
                             .padding(12)
-                            .foregroundStyle(.white)
-                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .foregroundStyle(Look.title)
+                            .background(Look.paper, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Look.line, lineWidth: 1))
                         Button(action: { model.sendToBench() }) {
                             Text(model.benchSending ? "Invio…" : "Invia al banco")
-                                .font(.system(size: 17, weight: .semibold))
+                                .font(Look.text(17, .semibold))
                                 .frame(maxWidth: .infinity, minHeight: 54)
-                                .foregroundStyle(navy)
+                                .foregroundStyle(.white)
                                 .background(cyan, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
                         .buttonStyle(.plain)
                         .disabled(model.benchSending || model.benchLink.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         if !model.benchState.isEmpty {
                             Text(model.benchState)
-                                .font(.system(size: 15))
+                                .font(Look.text(15))
                                 .foregroundStyle(Look.ink)
                         }
                     }
                 }
                 Text(SheetPDF.disclaimer)
-                    .font(.system(size: 13))
+                    .font(Look.text(13))
                     .foregroundStyle(Look.mute)
                 if let file = model.sheetFile {
                     ShareLink(item: file) {
                         Text("Invia scheda PDF")
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(Look.text(17, .semibold))
                             .frame(maxWidth: .infinity, minHeight: 54)
-                            .foregroundStyle(navy)
+                            .foregroundStyle(.white)
                             .background(cyan, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
                     .buttonStyle(.plain)
                 } else {
                     Text("Scegli il grado estetico per creare il PDF.")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(Look.text(15, .semibold))
                         .foregroundStyle(Look.ink)
                 }
                 BenchButton(title: "Nuova diagnosi", kind: .secondary) { model.restart() }
@@ -823,10 +818,10 @@ private struct ReportScreen: View {
         let status = item?.status ?? "skip"
         return VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline) {
-                Text(row.title).foregroundStyle(.white)
+                Text(row.title).foregroundStyle(Look.title)
                 Spacer(minLength: 12)
                 Text(statusIt(status))
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Look.text(13, .semibold))
                     .foregroundStyle(color(status))
             }
             if let note = item?.note, !note.isEmpty {
@@ -842,7 +837,7 @@ private struct ReportScreen: View {
         switch status {
         case "pass": return Look.pass
         case "fail": return Look.fail
-        default: return .white.opacity(0.55)
+        default: return Look.mute
         }
     }
 }
@@ -919,11 +914,11 @@ private struct DisplayPane: View {
             VStack(spacing: 6) {
                 if duo {
                     Text(step <= colors.count ? "Schermo esterno" : "Schermo interno")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(Look.text(13, .semibold))
                         .tracking(0.6)
                 }
                 Text(names[index])
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(Look.text(22, .semibold))
             }
             .foregroundStyle(ink(index))
         }
@@ -932,14 +927,14 @@ private struct DisplayPane: View {
     private var hinge: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("DISPLAY")
-                .font(.system(size: 13, weight: .semibold))
+                .font(Look.text(13, .semibold))
                 .tracking(0.8)
                 .foregroundStyle(cyan)
             Text("Apri l'iPhone Duo.")
-                .font(.system(size: 28, weight: .semibold))
-                .foregroundStyle(.white)
+                .font(Look.text(28, .semibold))
+                .foregroundStyle(Look.title)
             Text("Lo schermo esterno è fatto. I colori passano ora sul display interno. Guarda anche la piega al centro.")
-                .font(.system(size: 16))
+                .font(Look.text(16))
                 .foregroundStyle(Look.ink)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer()
@@ -957,21 +952,21 @@ private struct DisplayPane: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("DISPLAY")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(Look.text(13, .semibold))
                         .tracking(0.8)
                         .foregroundStyle(cyan)
                     Text("Cerca i pixel bloccati.")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .font(Look.text(28, .semibold))
+                        .foregroundStyle(Look.title)
                     phoneMark
                     Text("Un pixel bloccato resta fermo su un solo colore e non può cambiarlo. Su un campo uniforme non segue gli altri: resta di un colore diverso, oppure si vede come un punto nero.")
-                        .font(.system(size: 16))
+                        .font(Look.text(16))
                         .foregroundStyle(Look.ink)
                         .fixedSize(horizontal: false, vertical: true)
                     if duo {
                         Text("Il Duo ha due schermi. Prima i colori su quello esterno, a telefono chiuso. Poi lo apri e gli stessi colori su quello interno, piega compresa.")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .font(Look.text(16, .semibold))
+                            .foregroundStyle(Look.title)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     VStack(alignment: .leading, spacing: 8) {
@@ -1029,22 +1024,22 @@ private struct DisplayPane: View {
     }
 
     private func cue(_ title: String, _ line: String) -> some View {
-        (Text(title).font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
-            + Text(line).font(.system(size: 16)).foregroundStyle(Look.ink))
+        (Text(title).font(Look.text(16, .semibold)).foregroundStyle(Look.title)
+            + Text(line).font(Look.text(16)).foregroundStyle(Look.ink))
             .fixedSize(horizontal: false, vertical: true)
     }
 
     private var confirm: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("DISPLAY")
-                .font(.system(size: 13, weight: .semibold))
+                .font(Look.text(13, .semibold))
                 .tracking(0.8)
                 .foregroundStyle(cyan)
             Text(duo
                 ? "I due schermi sono uniformi, anche sulla piega, senza pixel spenti, macchie o linee?"
                 : "Lo schermo è uniforme, senza pixel spenti, macchie o linee?")
-                .font(.system(size: 28, weight: .semibold))
-                .foregroundStyle(.white)
+                .font(Look.text(28, .semibold))
+                .foregroundStyle(Look.title)
             Spacer()
             BenchButton(title: duo ? "Schermi ok" : "Schermo ok", action: onPass)
             BenchButton(title: "Vedo difetti", kind: .danger, action: onFail)
@@ -1133,11 +1128,11 @@ private struct MemoryBoard: View {
 
     private func line(_ title: String, _ value: String) -> some View {
         HStack {
-            Text(title).foregroundStyle(.white.opacity(0.7))
+            Text(title).foregroundStyle(Look.ink)
             Spacer()
             Text(value.isEmpty ? "—" : value)
                 .font(.title2.weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Look.title)
         }
         .padding(.horizontal, 16)
         .frame(minHeight: 64)
@@ -1162,8 +1157,8 @@ private struct GpsBoard: View {
                         .stroke(Look.line, lineWidth: 1)
                 )
             Text(accuracy.isEmpty ? "In attesa" : accuracy)
-                .font(.system(size: 28, weight: .semibold))
-                .foregroundStyle(.white)
+                .font(Look.text(28, .semibold))
+                .foregroundStyle(Look.title)
                 .minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1183,11 +1178,11 @@ private struct GpsBoard: View {
                 Look.card
                 VStack(spacing: 8) {
                     Image(systemName: "location.magnifyingglass")
-                        .font(.system(size: 28, weight: .semibold))
+                        .font(Look.text(28, .semibold))
                         .foregroundStyle(cyan)
                     Text("In cerca del punto")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .font(Look.text(17, .semibold))
+                        .foregroundStyle(Look.title)
                 }
             }
         }
@@ -1301,8 +1296,8 @@ private struct MultiPane: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay {
                 Text(count >= 2 ? "\(count)" : "\(count) / 2")
-                    .font(.system(size: 64, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .font(Look.text(64, .semibold))
+                    .foregroundStyle(Look.title)
                     .allowsHitTesting(false)
             }
     }
@@ -1354,8 +1349,8 @@ private struct PhoneMap: View {
         VStack(spacing: 18) {
             ZStack {
                 RoundedRectangle(cornerRadius: 36, style: .continuous)
-                    .stroke(Color.white.opacity(0.38), lineWidth: 3)
-                    .background(RoundedRectangle(cornerRadius: 36, style: .continuous).fill(Color.white.opacity(0.04)))
+                    .stroke(Look.title.opacity(0.35), lineWidth: 3)
+                    .background(RoundedRectangle(cornerRadius: 36, style: .continuous).fill(Color.white))
                     .frame(width: 168, height: 300)
                 Capsule()
                     .fill(Color.black.opacity(0.85))
@@ -1370,27 +1365,27 @@ private struct PhoneMap: View {
                         .offset(y: 116)
                 } else {
                     Capsule()
-                        .fill(spot == "ear" ? cyan : Color.white.opacity(0.28))
+                        .fill(spot == "ear" ? cyan : Look.title.opacity(0.28))
                         .frame(width: 48, height: 8)
                         .offset(y: -92)
                     Capsule()
-                        .fill(spot == "speaker" ? cyan : Color.white.opacity(0.28))
+                        .fill(spot == "speaker" ? cyan : Look.title.opacity(0.28))
                         .frame(width: 56, height: 8)
                         .offset(y: 128)
                     Text(caption)
                         .font(.footnote.weight(.semibold))
                         .multilineTextAlignment(.center)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Look.title)
                         .frame(width: 110)
                 }
             }
             .frame(width: 168, height: 300)
             if spot == "bottom" || spot == "front" || spot == "back" {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Livello").font(.footnote).foregroundStyle(.white.opacity(0.7))
+                    Text("Livello").font(.footnote).foregroundStyle(Look.ink)
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
-                            Capsule().fill(Color.white.opacity(0.12))
+                            Capsule().fill(Look.line)
                             Capsule()
                                 .fill(cyan)
                                 .frame(width: geo.size.width * CGFloat(min(100, max(0, level))) / 100)
@@ -1411,22 +1406,22 @@ private struct PhoneMap: View {
             switch kind {
             case .front:
                 Capsule()
-                    .fill(on ? cyan : Color.white.opacity(0.28))
+                    .fill(on ? cyan : Look.title.opacity(0.28))
                     .frame(width: 44, height: 8)
             case .rear:
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(on ? cyan : Color.white.opacity(0.28), lineWidth: 2)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(on ? cyan.opacity(0.22) : Color.white.opacity(0.04)))
+                    .stroke(on ? cyan : Look.title.opacity(0.28), lineWidth: 2)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(on ? cyan.opacity(0.22) : Look.paper))
                     .frame(width: 36, height: 36)
-                    .overlay(Circle().fill(on ? cyan : Color.white.opacity(0.45)).frame(width: 10, height: 10))
+                    .overlay(Circle().fill(on ? cyan : Look.title.opacity(0.45)).frame(width: 10, height: 10))
             case .bottom:
                 Capsule()
-                    .fill(on ? cyan : Color.white.opacity(0.28))
+                    .fill(on ? cyan : Look.title.opacity(0.28))
                     .frame(width: 48, height: 8)
             }
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(on ? cyan : Color.white.opacity(0.55))
+                .font(Look.text(12, .semibold))
+                .foregroundStyle(on ? cyan : Look.mute)
         }
     }
 
@@ -1461,7 +1456,7 @@ private struct FacePlate: View {
                 if points.count < 40 {
                     Text("Avvicina il volto. I puntini girano con la testa.")
                         .multilineTextAlignment(.center)
-                        .foregroundStyle(.white.opacity(0.7))
+                        .foregroundStyle(Look.ink)
                         .padding(.horizontal, 36)
                         .padding(.trailing, pipW)
                 }
@@ -1525,21 +1520,21 @@ private struct ButtonTrio: View {
                     .frame(width: 44, height: 44)
                 if mark == "pass" {
                     Text("V")
-                        .font(.system(size: 22, weight: .bold))
+                        .font(Look.text(22, .bold))
                         .foregroundStyle(Look.pass)
                 } else if mark == "fail" {
                     Text("X")
-                        .font(.system(size: 22, weight: .bold))
+                        .font(Look.text(22, .bold))
                         .foregroundStyle(Look.fail)
                 }
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .font(Look.text(22, .semibold))
+                    .foregroundStyle(Look.title)
                 if let live {
                     Text(live)
-                        .font(.system(size: 28, weight: .bold))
+                        .font(Look.text(28, .bold))
                         .foregroundStyle(live == "Silenzioso" ? Look.pass : .white)
                         .minimumScaleFactor(0.6)
                         .lineLimit(1)
@@ -1548,7 +1543,7 @@ private struct ButtonTrio: View {
             Spacer(minLength: 8)
             if mark.isEmpty {
                 Button("Non va", action: fail)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(Look.text(15, .semibold))
                     .foregroundStyle(Look.fail)
                     .padding(.horizontal, 14)
                     .frame(minHeight: 44)
@@ -1568,11 +1563,11 @@ private struct KeyMark: View {
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: on ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 88, weight: .semibold))
+                .font(Look.text(88, .semibold))
                 .foregroundStyle(on ? Color(red: 0.12, green: 0.66, blue: 0.48) : Color.white.opacity(0.35))
             Text(waiting)
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(.white)
+                .font(Look.text(20, .semibold))
+                .foregroundStyle(Look.title)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1593,7 +1588,7 @@ private struct QRGrab: View {
                     .frame(width: rect.width, height: rect.height)
                     .position(x: rect.midX, y: rect.midY)
                 Text("QR letto")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(Look.text(15, .bold))
                     .foregroundStyle(Look.navy)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -1601,10 +1596,10 @@ private struct QRGrab: View {
                     .position(x: rect.midX, y: labelY(rect, height: geo.size.height))
                 VStack(spacing: 4) {
                     Text("QR letto")
-                        .font(.system(size: 13, weight: .bold))
+                        .font(Look.text(13, .bold))
                         .foregroundStyle(Look.navy)
                     Text(text.isEmpty ? "Codice inquadrato" : text)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(Look.text(15, .semibold))
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
                         .lineLimit(3)
@@ -1647,7 +1642,7 @@ private struct LightBar: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Luce davanti")
                 .font(.footnote)
-                .foregroundStyle(.white.opacity(0.7))
+                .foregroundStyle(Look.ink)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.white.opacity(0.12))
@@ -1817,20 +1812,20 @@ private struct GyroList: View {
     private func gyroLine(_ title: String, _ value: String, _ on: Bool, goal: String = "") -> some View {
         HStack(spacing: 10) {
             Image(systemName: on ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 22, weight: .semibold))
+                .font(Look.text(22, .semibold))
                 .foregroundStyle(on ? Look.pass : Color.white.opacity(0.35))
                 .frame(width: 28)
             Text(title)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white)
+                .font(Look.text(17, .semibold))
+                .foregroundStyle(Look.title)
             Spacer(minLength: 8)
             if !goal.isEmpty {
                 Text(goal)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Look.text(13, .semibold))
                     .foregroundStyle(Look.mute)
             }
             Text(value)
-                .font(.system(size: 20, weight: .semibold))
+                .font(Look.text(20, .semibold))
                 .monospacedDigit()
                 .foregroundStyle(on ? Look.pass : .white)
                 .frame(minWidth: 64, alignment: .trailing)
@@ -1892,11 +1887,11 @@ private struct MuteWord: View {
         VStack(spacing: 18) {
             Text(word)
                 .font(.system(size: word == "Silenzioso" ? 46 : 60, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Look.title)
                 .minimumScaleFactor(0.5)
                 .lineLimit(1)
             Image(systemName: on ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 72, weight: .semibold))
+                .font(Look.text(72, .semibold))
                 .foregroundStyle(on ? Look.pass : Color.white.opacity(0.35))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1980,7 +1975,7 @@ private struct CompassRing: View {
                 Text(String(format: "%03.0f°", rose))
                     .font(.system(size: side * 0.1, weight: .semibold))
                     .monospacedDigit()
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Look.title)
                 Text(cardinal)
                     .font(.system(size: side * 0.042, weight: .semibold))
                     .foregroundStyle(Look.mute)

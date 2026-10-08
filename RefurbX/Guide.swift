@@ -342,7 +342,7 @@ private struct DemoScene: View {
             Capsule().fill(spot == 0 ? cyan : Color.white.opacity(0.25)).frame(width: 36, height: 8).offset(y: 118)
             Text(spot == 0 ? "Basso" : spot == 1 ? "Fronte" : "Retro")
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Look.title)
         }
     }
 
@@ -524,7 +524,7 @@ private struct DemoScene: View {
             Text(String(format: "%03.0f°", loop * 359))
                 .font(.title3.weight(.semibold))
                 .monospacedDigit()
-                .foregroundStyle(.white)
+                .foregroundStyle(Look.title)
         }
     }
 
@@ -603,7 +603,7 @@ private struct DemoScene: View {
                 .foregroundStyle(cyan)
             Text(testId == "memory" ? "256 GB" : "iPhone")
                 .font(.title2.weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Look.title)
             Text(testId == "memory" ? "libero \(Int(20 + loop * 8)) GB" : "in lettura")
                 .font(.footnote)
                 .foregroundStyle(ink)
@@ -626,7 +626,7 @@ private struct DemoScene: View {
             }
             .padding(.top, 36)
             Text("\(Int((level * 100).rounded()))%")
-                .font(.system(size: 15, weight: .semibold))
+                .font(Look.text(15, .semibold))
                 .monospacedDigit()
                 .foregroundStyle(cyan)
             Spacer(minLength: 0)

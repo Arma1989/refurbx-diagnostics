@@ -1,3 +1,4 @@
+import Darwin
 import ARKit
 import AudioToolbox
 import AVFoundation
@@ -113,17 +114,20 @@ final class DiagModel: ObservableObject {
         guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         let file = docs.appendingPathComponent("bench.url")
         if let text = try? String(contentsOf: file, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
-           BenchLink.parse(text) != nil {
-            if benchLink != text {
-                benchLink = text
-                UserDefaults.standard.set(text, forKey: "refurbx.bench-link")
+           let code = BenchLink.displayedCode(text), BenchLink.remember(text) {
+            if benchLink.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                benchLink = code
+                UserDefaults.standard.set(code, forKey: "refurbx.bench-link")
             }
             return
         }
         let fromArgs = ProcessInfo.processInfo.arguments.first { $0.hasPrefix("https://") || $0.hasPrefix("http://") }
-        if let fromArgs, BenchLink.parse(fromArgs) != nil, benchLink != fromArgs {
-            benchLink = fromArgs
-            UserDefaults.standard.set(fromArgs, forKey: "refurbx.bench-link")
+        if let fromArgs, let code = BenchLink.displayedCode(fromArgs), BenchLink.remember(fromArgs), benchLink != code {
+            benchLink = code
+            UserDefaults.standard.set(code, forKey: "refurbx.bench-link")
+        } else if let code = BenchLink.displayedCode(benchLink), benchLink != code, BenchLink.remember(benchLink) {
+            benchLink = code
+            UserDefaults.standard.set(code, forKey: "refurbx.bench-link")
         }
     }
 
@@ -476,17 +480,25 @@ final class DiagModel: ObservableObject {
 
     func sendToBench() {
         let raw = benchLink.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let target = BenchLink.parse(raw) else {
-            benchState = "Incolla il link intero del banco, quello sotto il codice."
+        guard !raw.isEmpty else {
+            benchState = "Scrivi il codice di sei lettere del banco."
             return
         }
-        UserDefaults.standard.set(raw, forKey: "refurbx.bench-link")
         flushOutbox()
         benchSending = true
-        benchState = "Invio al banco…"
-        let payload = benchPayload()
+        benchState = "Cerco il banco…"
         Task {
-            let message = await BenchLink.deliver(target, payload: payload)
+            guard let target = await BenchLink.resolve(raw) else {
+                self.benchSending = false
+                self.benchState = "Non trovo il banco. Se compare il permesso Rete locale, accettalo e premi di nuovo Invia. Il telefono deve essere sulla stessa Wi-Fi del computer, oppure collegato col cavo."
+                return
+            }
+            if let code = BenchLink.displayedCode(raw) {
+                self.benchLink = code
+                UserDefaults.standard.set(code, forKey: "refurbx.bench-link")
+            }
+            self.benchState = "Invio al banco…"
+            let message = await BenchLink.deliver(target, payload: self.benchPayload())
             self.benchSending = false
             self.benchState = message
         }
@@ -2156,17 +2168,181 @@ private struct SavedRun: Codable {
 }
 
 enum BenchLink {
+    private static let alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    private static let hostKey = "refurbx.bench-host"
+
+    static func displayedCode(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmed), url.host != nil, let last = url.path.split(separator: "/").last {
+            let code = String(last).uppercased()
+            if isCode(code) { return code }
+        }
+        let compact = trimmed.uppercased().filter { $0.isLetter || $0.isNumber }
+        return isCode(compact) ? compact : nil
+    }
+
+    @discardableResult
+    static func remember(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), let host = url.host, let scheme = url.scheme, scheme == "http" || scheme == "https" else { return false }
+        guard displayedCode(trimmed) != nil else { return false }
+        var base = "\(scheme)://\(host)"
+        if let port = url.port { base += ":\(port)" }
+        UserDefaults.standard.set(base, forKey: hostKey)
+        return true
+    }
+
     static func parse(_ raw: String) -> URL? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed), let host = url.host, let scheme = url.scheme, scheme == "http" || scheme == "https" else { return nil }
-        let code = (url.path.split(separator: "/").last.map(String.init) ?? "").uppercased()
-        guard code.count == 6, code.allSatisfy({ "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".contains($0) }) else { return nil }
+        guard let code = displayedCode(trimmed) else { return nil }
         var parts = URLComponents()
         parts.scheme = scheme
         parts.host = host
         parts.port = url.port
         parts.path = "/api/intake/\(code)"
         return parts.url
+    }
+
+    static func resolve(_ raw: String) async -> URL? {
+        if let direct = parse(raw) {
+            remember(raw)
+            return direct
+        }
+        guard let code = displayedCode(raw) else { return nil }
+        if let saved = UserDefaults.standard.string(forKey: hostKey), let intake = intakeURL(saved, code), await reachable(intake) {
+            return intake
+        }
+        return await hearBench(code)
+    }
+
+    private static func isCode(_ value: String) -> Bool {
+        value.count == 6 && value.allSatisfy { alphabet.contains($0) }
+    }
+
+    private static func intakeURL(_ base: String, _ code: String) -> URL? {
+        guard var parts = URLComponents(string: base) else { return nil }
+        parts.path = "/api/intake/\(code)"
+        parts.query = nil
+        parts.fragment = nil
+        return parts.url
+    }
+
+    private static func reachable(_ intake: URL, timeout: TimeInterval = 4) async -> Bool {
+        guard var parts = URLComponents(url: intake, resolvingAgainstBaseURL: false) else { return false }
+        let code = parts.path.split(separator: "/").last.map(String.init) ?? ""
+        parts.path = "/api/join/\(code)"
+        guard let url = parts.url else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = timeout
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse else { return false }
+        return (200...299).contains(http.statusCode)
+    }
+
+    private struct Heard {
+        var publicBase: String?
+        var lanBase: String?
+    }
+
+    private static func hearBench(_ code: String) async -> URL? {
+        let packets = await listenBeacons(seconds: 4)
+        for packet in packets {
+            if let base = packet.publicBase, let intake = intakeURL(base, code), await reachable(intake) {
+                UserDefaults.standard.set(base, forKey: hostKey)
+                return intake
+            }
+            if let base = packet.lanBase, let intake = intakeURL(base, code), await reachable(intake, timeout: 1.2) {
+                UserDefaults.standard.set(base, forKey: hostKey)
+                return intake
+            }
+        }
+        return nil
+    }
+
+    private static func listenBeacons(seconds: TimeInterval) async -> [Heard] {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: collectBeacons(seconds: seconds))
+            }
+        }
+    }
+
+    private static func collectBeacons(seconds: TimeInterval) -> [Heard] {
+        let fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+        if fd < 0 { return [] }
+        defer { close(fd) }
+        var reuse: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = UInt16(43721).bigEndian
+        addr.sin_addr.s_addr = INADDR_ANY
+        let bound = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        if bound != 0 { return [] }
+        var wait = timeval(tv_sec: 1, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
+        let deadline = Date().addingTimeInterval(seconds)
+        var heard: [Heard] = []
+        var seen = Set<String>()
+        while Date() < deadline {
+            var buf = [UInt8](repeating: 0, count: 512)
+            var from = sockaddr_in()
+            var fromLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let count = buf.withUnsafeMutableBytes { raw in
+                withUnsafeMutablePointer(to: &from) {
+                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        recvfrom(fd, raw.baseAddress, raw.count, 0, $0, &fromLen)
+                    }
+                }
+            }
+            if count <= 0 { continue }
+            var hostBuf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            let named = withUnsafePointer(to: &from) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    getnameinfo($0, fromLen, &hostBuf, socklen_t(hostBuf.count), nil, 0, NI_NUMERICHOST)
+                }
+            }
+            let source = named == 0 ? String(cString: hostBuf) : ""
+            let text = String(bytes: buf.prefix(Int(count)), encoding: .utf8) ?? ""
+            for line in text.split(separator: "\n") {
+                let parts = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+                guard parts.count >= 3, parts[0] == "REFURBX" else { continue }
+                let key = source + "|" + parts[1] + "|" + parts[2]
+                if seen.contains(key) { continue }
+                seen.insert(key)
+                heard.append(Heard(publicBase: cleanPublic(parts[1]), lanBase: cleanLan(parts[2], source: source)))
+            }
+        }
+        return heard
+    }
+
+    private static func cleanPublic(_ raw: String) -> String? {
+        guard let url = URL(string: raw), url.scheme == "https", let host = url.host else { return nil }
+        let known = host == "refurbx.eu" || host.hasSuffix(".refurbx.eu") || host.hasSuffix(".trycloudflare.com")
+        guard known else { return nil }
+        return "https://\(host)"
+    }
+
+    private static func cleanLan(_ raw: String, source: String) -> String? {
+        guard let url = URL(string: raw), url.scheme == "http", let host = url.host, host == source, privateHost(host) else { return nil }
+        let port = url.port ?? 43123
+        guard port == 43123 else { return nil }
+        return "http://\(host):\(port)"
+    }
+
+    private static func privateHost(_ host: String) -> Bool {
+        let parts = host.split(separator: ".").compactMap { Int($0) }
+        guard parts.count == 4 else { return false }
+        if parts[0] == 10 { return true }
+        if parts[0] == 192 && parts[1] == 168 { return true }
+        return parts[0] == 172 && (16...31).contains(parts[1])
     }
 
     static func deliver(_ url: URL, payload: [String: Any]) async -> String {
