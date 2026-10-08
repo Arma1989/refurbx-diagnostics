@@ -133,8 +133,6 @@ final class DiagModel: ObservableObject {
     private var lightPeak = 0.0
     private var lightFrames = 0
     private var lightUsesFrames = false
-    private var lightSawDark = false
-    private var lightSawBright = false
     private var playback: AVAudioPlayer?
     private var observers: [NSObjectProtocol] = []
     private var micQueue: [AVAudioSessionDataSourceDescription] = []
@@ -566,8 +564,6 @@ final class DiagModel: ObservableObject {
         lightPeak = 0
         lightFrames = 0
         lightUsesFrames = false
-        lightSawDark = false
-        lightSawBright = false
         if row.id == "nfc" {
             armNfc()
         }
@@ -743,7 +739,11 @@ final class DiagModel: ObservableObject {
         let os = "\(HardwareFit.systemName) \(UIDevice.current.systemVersion)"
         let note = "\(Machine.described) · \(os)"
         hint = os
-        detail = name == nil ? "Codice di fabbrica \(code)" : "\(name ?? "")\nCodice di fabbrica \(code)"
+        if Machine.isDuo {
+            detail = "iPhone Duo\nCodice di fabbrica \(code)\nSchermo esterno e schermo interno"
+        } else {
+            detail = name == nil ? "Codice di fabbrica \(code)" : "\(name ?? "")\nCodice di fabbrica \(code)"
+        }
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         later(3) { self.settle("identity", "pass", note) }
     }
@@ -1423,7 +1423,9 @@ final class DiagModel: ObservableObject {
     }
 
     private func startBiometrics() {
-        hint = "Usa il volto o l'impronta. Se la richiesta non compare, salta."
+        hint = Machine.isDuo
+            ? "Appoggia il dito sul tasto laterale. Il Duo legge l'impronta, non il volto."
+            : "Usa il volto o l'impronta. Se la richiesta non compare, salta."
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         face.run { [weak self] status, note in
             self?.settle("biometrics", status, note)
@@ -1498,7 +1500,9 @@ final class DiagModel: ObservableObject {
                     self.camera.start(front: front, lens: self.lens, onFocus: {}, onRunning: {
                         guard self.still(id) else { return }
                         self.hint = front
-                            ? "Il volto deve essere in verticale. Conferma solo se l'immagine è pulita e dritta."
+                            ? (Machine.isDuo
+                                ? "Chiuso: camera esterna. Aperto: camera sotto il display interno. Conferma solo se entrambe sono pulite."
+                                : "Il volto deve essere in verticale. Conferma solo se l'immagine è pulita e dritta.")
                             : "Cambia obiettivo se ce n'è più di uno. Conferma solo se l'immagine è nitida."
                         self.detail = front ? "" : self.openedLenses.joined(separator: " · ")
                         self.actions = [
@@ -1689,17 +1693,16 @@ final class DiagModel: ObservableObject {
         lightFloor = 0
         lightCeil = 0
         lightBase = 0
-        lightSawDark = false
-        lightSawBright = false
         lightPeak = 0
         lightFrames = 0
         lightUsesFrames = false
         showCamera = false
         lightLevel = 0.25
-        hint = "Metti una luce sul sensore davanti, in alto. La barra sale. Toglila: la barra scende subito. Non è la fotocamera dietro."
+        hint = Machine.isDuo
+            ? "Il Duo ha quattro sensori di luce. Avvicina una luce finché la barra arriva al 100%."
+            : "Metti una luce sul sensore davanti, in alto, finché la barra arriva al 100%. Non è la fotocamera dietro."
         detail = "Luce davanti"
         actions = [
-            Act(label: "Si è abbassata", status: "pass", note: "La luce davanti è scesa togliendo la sorgente"),
             Act(label: "Non reagisce", status: "fail", note: "Il sensore davanti non reagisce"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
@@ -1746,13 +1749,10 @@ final class DiagModel: ObservableObject {
             lightLevel = lightLevel * 0.35 + target * 0.65
         }
         detail = "Luce davanti \(Int((lightLevel * 100).rounded()))%"
-        if lightLevel >= 0.55 { lightSawBright = true }
-        if lightSawBright && lightLevel <= 0.32 {
-            settle("light", "pass", "La luce davanti è salita e poi scesa")
-            return
-        }
-        if lightSawBright && lightLevel < 0.48 {
-            hint = "La luce sta scendendo. Tieni la sorgente lontana dal sensore davanti."
+        if target >= 1 || lightLevel >= 0.995 {
+            lightLevel = 1
+            detail = "Luce davanti 100%"
+            settle("light", "pass", "La luce davanti è arrivata al 100%")
         }
     }
 

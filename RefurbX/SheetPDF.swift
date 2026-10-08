@@ -87,30 +87,51 @@ enum SheetPDF {
     }
 
     private static func drawHeader(navy: UIColor, when: String, device: String) -> CGFloat {
+        let headerHeight: CGFloat = 108
         navy.setFill()
-        UIBezierPath(rect: CGRect(x: 0, y: 0, width: 595, height: 108)).fill()
-        if let mark = UIImage(named: "Mark") {
-            mark.draw(in: CGRect(x: 36, y: 28, width: 52, height: 52))
-        }
-        let white = UIColor.white
+        UIBezierPath(rect: CGRect(x: 0, y: 0, width: 595, height: headerHeight)).fill()
         let cyan = UIColor(red: 0.48, green: 0.84, blue: 1, alpha: 1)
-        ("REFURBX" as NSString).draw(at: CGPoint(x: 100, y: 30), withAttributes: [
-            .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
-            .foregroundColor: cyan,
-        ])
-        ("Scheda diagnostica" as NSString).draw(at: CGPoint(x: 100, y: 48), withAttributes: [
-            .font: UIFont.systemFont(ofSize: 22, weight: .semibold),
-            .foregroundColor: white,
-        ])
-        (when as NSString).draw(at: CGPoint(x: 100, y: 76), withAttributes: [
-            .font: UIFont.systemFont(ofSize: 11, weight: .regular),
-            .foregroundColor: UIColor.white.withAlphaComponent(0.8),
-        ])
-        (device as NSString).draw(at: CGPoint(x: 320, y: 76), withAttributes: [
-            .font: UIFont.systemFont(ofSize: 11, weight: .regular),
-            .foregroundColor: UIColor.white.withAlphaComponent(0.8),
-        ])
-        return 128
+        cyan.setFill()
+        UIBezierPath(rect: CGRect(x: 0, y: headerHeight - 2, width: 595, height: 2)).fill()
+
+        let logoHeight: CGFloat = 78
+        var textX: CGFloat = 36
+        if let logo = UIImage(named: "Logo") {
+            let ratio = logo.size.width / max(logo.size.height, 1)
+            let logoWidth = logoHeight * ratio
+            logo.draw(in: CGRect(x: 28, y: (headerHeight - logoHeight) / 2, width: logoWidth, height: logoHeight))
+            textX = 28 + logoWidth + 14
+        } else if let mark = UIImage(named: "Mark") {
+            mark.draw(in: CGRect(x: 36, y: 22, width: 64, height: 64))
+            textX = 116
+        }
+
+        let white = UIColor.white
+        let faded = UIColor.white.withAlphaComponent(0.78)
+        let maxWidth = 595 - textX - 28
+        let block = CGRect(x: textX, y: 28, width: maxWidth, height: 56)
+        ("Scheda diagnostica" as NSString).draw(
+            in: CGRect(x: block.minX, y: block.minY, width: maxWidth, height: 24),
+            withAttributes: [
+                .font: UIFont.systemFont(ofSize: 18, weight: .semibold),
+                .foregroundColor: white,
+            ]
+        )
+        (when as NSString).draw(
+            in: CGRect(x: block.minX, y: block.minY + 26, width: maxWidth, height: 14),
+            withAttributes: [
+                .font: UIFont.systemFont(ofSize: 10, weight: .regular),
+                .foregroundColor: faded,
+            ]
+        )
+        (device as NSString).draw(
+            in: CGRect(x: block.minX, y: block.minY + 40, width: maxWidth, height: 14),
+            withAttributes: [
+                .font: UIFont.systemFont(ofSize: 10, weight: .regular),
+                .foregroundColor: faded,
+            ]
+        )
+        return headerHeight + 22
     }
 
     private static func drawBlock(_ kicker: String, _ grade: String, _ title: String, _ line: String, y: CGFloat, ink: UIColor, mute: UIColor) -> CGFloat {
@@ -135,7 +156,14 @@ enum SheetPDF {
         UIGraphicsPopContext()
         context.beginPage()
         UIGraphicsPushContext(context.cgContext)
-        return 36
+        if let logo = UIImage(named: "Logo") {
+            let height: CGFloat = 28
+            let ratio = logo.size.width / max(logo.size.height, 1)
+            logo.draw(in: CGRect(x: 36, y: 16, width: height * ratio, height: height))
+        }
+        UIColor(red: 0.043, green: 0.059, blue: 0.145, alpha: 1).setFill()
+        UIBezierPath(rect: CGRect(x: 36, y: 50, width: 523, height: 1)).fill()
+        return 64
     }
 
     private static func draw(_ text: String, _ font: UIFont, _ color: UIColor, x: CGFloat, y: inout CGFloat, width: CGFloat) {

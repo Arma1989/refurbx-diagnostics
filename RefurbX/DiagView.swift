@@ -69,28 +69,19 @@ private struct IntroScreen: View {
     }
 
     private var home: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 14) {
-                ZStack {
-                    Circle()
-                        .fill(cyan.opacity(0.16))
-                        .frame(width: 52, height: 52)
-                    Circle()
-                        .stroke(cyan.opacity(0.55), lineWidth: 1)
-                        .frame(width: 52, height: 52)
-                    Image(systemName: HardwareFit.pad ? "ipad" : "iphone")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(cyan)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("REFURBX")
-                        .font(.system(size: 13, weight: .semibold))
-                        .tracking(1.4)
-                        .foregroundStyle(cyan)
-                    Text("Diagnostica")
-                        .font(.system(size: 34, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 0) {
+                Image("Logo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 168, height: 126, alignment: .leading)
+                    .padding(.leading, -8)
+                    .accessibilityLabel("RefurbX")
+                Text("DIAGNOSTICA")
+                    .font(.system(size: 12, weight: .semibold))
+                    .tracking(1.8)
+                    .foregroundStyle(cyan)
+                    .padding(.leading, 4)
             }
             Text("Tocca un quadrato per aprire la sezione. Dentro, tocca una prova e parte subito.")
                 .font(.system(size: 17))
@@ -101,6 +92,7 @@ private struct IntroScreen: View {
             BenchButton(title: "Tutti i test · \(HardwareFit.rows(in: nil).count)", action: startAll)
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    RefurbBanner()
                     LazyVGrid(columns: benchColumns, spacing: 12) {
                         ForEach(Catalog.groups.filter { !HardwareFit.rows(in: $0).isEmpty }, id: \.self) { group in
                             let count = HardwareFit.rows(in: group).count
@@ -135,7 +127,7 @@ private struct IntroScreen: View {
             }
         }
         .padding(.horizontal, 22)
-        .padding(.top, 28)
+        .padding(.top, 18)
         .frame(maxWidth: 720)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
@@ -223,6 +215,61 @@ private struct SectionScreen: View {
 }
 
 private let benchColumns = [GridItem(.adaptive(minimum: 148), spacing: 12)]
+
+private struct RefurbBanner: View {
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                Image("Mark")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("REFURBX")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(1.4)
+                        .foregroundStyle(cyan)
+                    Text("Vuoi vendere il tuo iPhone?")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Text("Vendilo sul marketplace, oppure acquista un usato originale.")
+                .font(.system(size: 15))
+                .foregroundStyle(Look.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                if let url = URL(string: "https://www.refurbx.eu") {
+                    openURL(url)
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Text("Vai su refurbx.eu")
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 13, weight: .bold))
+                }
+                .font(.system(size: 16, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .foregroundStyle(navy)
+                .background(cyan, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Apri il sito RefurbX")
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Look.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Look.line, lineWidth: 1)
+        )
+    }
+}
 
 private struct BenchSquare: View {
     let title: String
@@ -554,15 +601,27 @@ private struct ReportScreen: View {
         let choice = Cosmetic.find(model.lookGrade)
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("SCHEDA")
-                    .font(.system(size: 13, weight: .semibold))
-                    .tracking(1.2)
-                    .foregroundStyle(cyan)
-                if let when = model.testedAt {
-                    Text(Self.stamp.string(from: when))
-                        .font(.system(size: 15))
-                        .foregroundStyle(Look.mute)
+                HStack(alignment: .center, spacing: 12) {
+                    Image("Mark")
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 44, height: 44)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("SCHEDA")
+                            .font(.system(size: 12, weight: .semibold))
+                            .tracking(1.4)
+                            .foregroundStyle(cyan)
+                        if let when = model.testedAt {
+                            Text(Self.stamp.string(from: when))
+                                .font(.system(size: 14))
+                                .foregroundStyle(Look.mute)
+                                .lineLimit(1)
+                        }
+                    }
                 }
+                RefurbBanner()
                 BenchCard {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("GRADO ESTETICO")
@@ -796,32 +855,45 @@ private struct DisplayPane: View {
     private let colors: [Color] = [.white, .black, .red, .green, .blue, .yellow, Color(white: 0.5)]
     private let names = ["Bianco", "Nero", "Rosso", "Verde", "Blu", "Giallo", "Grigio"]
 
+    private var duo: Bool { Machine.isDuo }
+    private var hingeStep: Int { colors.count + 1 }
+    private var innerStart: Int { colors.count + 2 }
+
+    private var isHinge: Bool { duo && step == hingeStep }
+
+    private var isColorStep: Bool {
+        if step < 1 { return false }
+        if !duo { return step <= colors.count }
+        if step <= colors.count { return true }
+        return step >= innerStart && step < innerStart + colors.count
+    }
+
+    private var colorIndex: Int {
+        step <= colors.count ? step - 1 : step - innerStart
+    }
+
     var body: some View {
         ZStack {
             if step == 0 {
                 intro
-            } else if step <= colors.count {
-                let index = step - 1
-                ZStack {
-                    colors[index].ignoresSafeArea()
-                    Text(names[index])
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(ink(index))
-                }
+            } else if isColorStep {
+                colorWash
+            } else if isHinge {
+                hinge
             } else {
                 confirm
             }
         }
         .overlay {
-            if step > 0, step <= colors.count {
+            if isColorStep {
                 TapCatcher {
-                    if step > 0, step <= colors.count { step += 1 }
+                    if isColorStep { step += 1 }
                 }
                 .ignoresSafeArea()
             }
         }
         .overlay(alignment: .topTrailing) {
-            if step <= colors.count {
+            if step == 0 || isColorStep || isHinge {
                 Button("Salta", action: onSkip)
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 14)
@@ -832,11 +904,48 @@ private struct DisplayPane: View {
             }
         }
         .task(id: step) {
-            guard step > 0, step <= colors.count else { return }
+            guard isColorStep else { return }
+            let seen = step
             try? await Task.sleep(nanoseconds: 2_200_000_000)
-            guard !Task.isCancelled, step > 0, step <= colors.count else { return }
+            guard !Task.isCancelled, step == seen else { return }
             step += 1
         }
+    }
+
+    private var colorWash: some View {
+        let index = colorIndex
+        return ZStack {
+            colors[index].ignoresSafeArea()
+            VStack(spacing: 6) {
+                if duo {
+                    Text(step <= colors.count ? "Schermo esterno" : "Schermo interno")
+                        .font(.system(size: 13, weight: .semibold))
+                        .tracking(0.6)
+                }
+                Text(names[index])
+                    .font(.system(size: 22, weight: .semibold))
+            }
+            .foregroundStyle(ink(index))
+        }
+    }
+
+    private var hinge: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("DISPLAY")
+                .font(.system(size: 13, weight: .semibold))
+                .tracking(0.8)
+                .foregroundStyle(cyan)
+            Text("Apri l'iPhone Duo.")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(.white)
+            Text("Lo schermo esterno è fatto. I colori passano ora sul display interno. Guarda anche la piega al centro.")
+                .font(.system(size: 16))
+                .foregroundStyle(Look.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            BenchButton(title: "Schermo interno") { step = innerStart }
+        }
+        .padding(22)
     }
 
     private func ink(_ index: Int) -> Color {
@@ -859,6 +968,12 @@ private struct DisplayPane: View {
                         .font(.system(size: 16))
                         .foregroundStyle(Look.ink)
                         .fixedSize(horizontal: false, vertical: true)
+                    if duo {
+                        Text("Il Duo ha due schermi. Prima i colori su quello esterno, a telefono chiuso. Poi lo apri e gli stessi colori su quello interno, piega compresa.")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     VStack(alignment: .leading, spacing: 8) {
                         cue("Bianco: ", "aloni, polvere sotto il vetro, punti neri.")
                         cue("Nero: ", "chiazze chiare, bruciature, aloni grigi.")
@@ -925,11 +1040,13 @@ private struct DisplayPane: View {
                 .font(.system(size: 13, weight: .semibold))
                 .tracking(0.8)
                 .foregroundStyle(cyan)
-            Text("Lo schermo è uniforme, senza pixel spenti, macchie o linee?")
+            Text(duo
+                ? "I due schermi sono uniformi, anche sulla piega, senza pixel spenti, macchie o linee?"
+                : "Lo schermo è uniforme, senza pixel spenti, macchie o linee?")
                 .font(.system(size: 28, weight: .semibold))
                 .foregroundStyle(.white)
             Spacer()
-            BenchButton(title: "Schermo ok", action: onPass)
+            BenchButton(title: duo ? "Schermi ok" : "Schermo ok", action: onPass)
             BenchButton(title: "Vedo difetti", kind: .danger, action: onFail)
             BenchButton(title: "Salta", kind: .secondary, action: onSkip)
         }

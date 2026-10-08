@@ -48,7 +48,11 @@ private enum GuideCopy {
         case "identity": return "Mostro il nome commerciale e il codice di fabbrica, per esempio iPhone 17 Pro Max e iPhone18,2."
         case "memory": return "Mostro il totale, lo spazio libero e quello usato del telefono."
         case "network": return "Controllo se il Wi-Fi è collegato. Se non lo è, collega il Wi-Fi e riprova."
-        case "display": return "Prima leggi cosa cercare su ogni colore. I sette colori partono solo dopo Inizia: bianco, nero, rosso, verde, blu, giallo e grigio."
+        case "display":
+            if Machine.isDuo {
+                return "Prima lo schermo esterno, a telefono chiuso. Poi apri il Duo e gli stessi colori sullo schermo interno, piega compresa."
+            }
+            return "Prima leggi cosa cercare su ogni colore. I sette colori partono solo dopo Inizia: bianco, nero, rosso, verde, blu, giallo e grigio."
         case "touch": return "Trascina un dito su tutte le celle, anche sui bordi."
         case "multitouch": return "Appoggia due dita insieme, come nell'esempio."
         case "force": return "Premi piano e poi forte nel riquadro. Questo schermo misura la pressione."
@@ -66,7 +70,7 @@ private enum GuideCopy {
         case "truedepth": return "In alto a destra vedi la fotocamera, come in una videochiamata. Al centro i puntini bianchi sono il volto TrueDepth: girano con la testa."
         case "lidar": return "La vista a infrarossi resta aperta. Avvicina la mano: solo il vicino diventa più scuro."
         case "proximity": return "Copri il sensore in alto, vicino alla capsula."
-        case "light": return "Metti una luce sul sensore davanti, in alto. La barra sale. Toglila e scende subito."
+        case "light": return "Metti una luce sul sensore davanti, in alto, finché la barra arriva al 100%."
         case "accelerometer": return "Inclina il telefono verso i quattro bordi, come la pallina."
         case "gyroscope": return "Tienilo fermo, poi inclinalo di lato, avanti e giralo. I tre assi devono muoversi."
         case "compass": return "Tienilo in piano e fai un giro completo. Si accendono 8 punti. Finché manca un punto, il test non va avanti."

@@ -45,6 +45,7 @@ enum HardwareFit {
     }
 
     static var acceptsPencil: Bool {
+        if Machine.isDuo { return true }
         guard pad else { return false }
         guard let major = Machine.ipadMajor else { return true }
         if let name = Machine.commercialName?.lowercased(), name.contains("pro") { return true }
@@ -103,6 +104,8 @@ enum Machine {
         commercialName ?? identifier
     }
 
+    static var isDuo: Bool { identifier == "iPhone19,4" }
+
     static var described: String {
         let code = identifier
         guard let name = commercialName else { return code }
@@ -110,6 +113,7 @@ enum Machine {
     }
 
     private static let names: [String: String] = [
+        "iPhone19,4": "iPhone Duo",
         "iPhone19,2": "iPhone 18 Pro",
         "iPhone19,3": "iPhone 18 Pro Max",
         "iPhone19,7": "iPhone 18 Pro Max",
@@ -1703,7 +1707,10 @@ final class FaceProbe {
         context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Prova il riconoscimento per la diagnosi") { ok, evalError in
             DispatchQueue.main.async {
                 if ok {
-                    done("pass", "Riconoscimento accettato. L'immagine a infrarossi resta nel sistema.")
+                    let touch = context.biometryType == .touchID || Machine.isDuo
+                    done("pass", touch
+                        ? "Impronta accettata dal tasto laterale"
+                        : "Riconoscimento accettato. L'immagine a infrarossi resta nel sistema.")
                 } else {
                     let code = (evalError as NSError?)?.code
                     if code == LAError.userCancel.rawValue || code == LAError.appCancel.rawValue || code == LAError.systemCancel.rawValue || code == LAError.biometryLockout.rawValue {
