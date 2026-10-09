@@ -300,8 +300,13 @@ final class DiagModel: ObservableObject {
             hint = "In alto a destra c'è la fotocamera a colori. Al centro i puntini TrueDepth. Gira la testa: devono girare con te."
             actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
             armFace()
+        case "face-retry":
+            face.cancel()
+            startBiometrics()
         case "wifi-retry":
             readNetwork()
+        case "cell-retry":
+            startCellular()
         case "bt-retry":
             startBluetooth()
         case "open-wifi":
@@ -689,8 +694,8 @@ final class DiagModel: ObservableObject {
     }
 
     private static let immediateIds: Set<String> = [
-        "identity", "memory", "display", "network", "vibration",
-        "flash", "bluetooth", "charging", "biometrics",
+        "identity", "memory", "display", "network", "cellular", "vibration",
+        "flash", "bluetooth", "charging",
     ]
 
     private static func skipsGuide(_ id: String) -> Bool {
@@ -714,6 +719,7 @@ final class DiagModel: ObservableObject {
         switch row.id {
         case "identity": readIdentity()
         case "network": readNetwork()
+        case "cellular": startCellular()
         case "display": hint = "Bianco, nero, rosso, verde, blu, giallo e grigio partono da soli. Poi conferma se lo schermo è uniforme."
         case "touch":
             hint = "Trascina il dito su tutte le celle, anche i bordi. Una cella spenta è una zona morta."
@@ -881,6 +887,46 @@ final class DiagModel: ObservableObject {
                 ]
             }
         }
+    }
+
+    private func startCellular() {
+        wave += 1
+        keyOk = false
+        hint = "Controllo se la radio è agganciata a una rete. Il Wi-Fi non conta."
+        detail = "In controllo"
+        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        armCellular()
+    }
+
+    private func armCellular() {
+        guard still("cellular") else { return }
+        let report = CellProbe.read()
+        if report.registered {
+            keyOk = true
+            detail = report.headline
+            hint = "La radio è agganciata. Il Wi-Fi può restare acceso: questo è il segnale cellulare."
+            actions = [
+                Act(label: "Segnale ok", status: "pass", note: report.note),
+                Act(label: "Non prende", status: "fail", note: "Nessun segnale di rete"),
+                Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            ]
+        } else {
+            keyOk = false
+            detail = "Nessun segnale"
+            hint = HardwareFit.pad
+                ? "Nessuna rete. Se questo iPad è solo Wi-Fi, segnalo. Altrimenti controlla la SIM e la modalità aereo."
+                : "Nessuna rete. Controlla la SIM e disattiva la modalità aereo, poi resta su questa schermata."
+            var next = [
+                Act(label: "Riprova", status: "cell-retry", note: ""),
+                Act(label: "Nessun segnale", status: "fail", note: "Nessun segnale di rete"),
+            ]
+            if HardwareFit.pad {
+                next.append(Act(label: "Solo Wi-Fi", status: "absent", note: "iPad senza rete cellulare"))
+            }
+            next.append(Act(label: "Salta", status: "skip", note: "Non eseguito"))
+            actions = next
+        }
+        later(1.2) { self.armCellular() }
     }
 
     private func startNfc() {
@@ -1510,17 +1556,39 @@ final class DiagModel: ObservableObject {
     }
 
     private func startBiometrics() {
-        hint = Machine.isDuo
-            ? "Appoggia il dito sul tasto laterale. Il Duo legge l'impronta, non il volto."
-            : "Usa il volto o l'impronta. Se la richiesta non compare, salta."
-        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
-        face.run { [weak self] status, note in
-            self?.settle("biometrics", status, note)
-            return
-        }
-        later(25) {
+        wave += 1
+        let touch = FaceProbe.prefersTouch()
+        hint = touch
+            ? "Appoggia il dito \(HardwareFit.fingerprintPlace). Il test passa solo se l'impronta è quella registrata."
+            : (HardwareFit.pad
+                ? "Guarda lo schermo. Compare Face ID: il test passa solo se il volto è quello registrato."
+                : "Guarda il telefono. Compare Face ID: il test passa solo se il volto è quello registrato.")
+        detail = touch ? "Touch ID" : "Face ID"
+        actions = biometryActions(touch: touch)
+        later(0.45) {
             guard self.still("biometrics") else { return }
-            self.hint = "Il riconoscimento non ha risposto. Salta e vai avanti."
+            self.armBiometrics(touch: touch)
+        }
+    }
+
+    private func biometryActions(touch: Bool) -> [Act] {
+        [
+            Act(label: touch ? "Riprova impronta" : "Riprova Face ID", status: "face-retry", note: ""),
+            Act(label: "Non funziona", status: "fail", note: touch ? "L'impronta non viene accettata" : "Face ID non accetta il volto"),
+            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+        ]
+    }
+
+    private func armBiometrics(touch: Bool) {
+        face.run { [weak self] status, note in
+            guard let self, self.still("biometrics") else { return }
+            if status == "again" {
+                self.hint = note
+                self.detail = "In attesa"
+                self.actions = self.biometryActions(touch: touch)
+                return
+            }
+            self.settle("biometrics", status, note)
         }
     }
 

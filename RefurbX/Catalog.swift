@@ -50,6 +50,7 @@ enum Catalog {
         Row(id: "gps", group: "Sensori", title: "GPS", weight: 1, critical: false),
         Row(id: "bluetooth", group: "Connettività", title: "Bluetooth", weight: 1, critical: false),
         Row(id: "nfc", group: "Connettività", title: "NFC", weight: 1, critical: false),
+        Row(id: "cellular", group: "Connettività", title: "Rete", weight: 1, critical: false),
         Row(id: "volume_up", group: "Tasti", title: "Volume +", weight: 2, critical: false),
         Row(id: "volume_down", group: "Tasti", title: "Volume −", weight: 2, critical: false),
         Row(id: "power_button", group: "Tasti", title: "Accensione", weight: 2, critical: false),
@@ -82,7 +83,7 @@ enum Catalog {
         case "Audio": return "Speaker, microfoni, vibrazione"
         case "Foto": return "Obiettivi e profondità"
         case "Sensori": return "Movimento, bussola, GPS"
-        case "Connettività": return "Bluetooth e NFC"
+        case "Connettività": return "Bluetooth, NFC e rete"
         case "Tasti": return "Volume, accensione, silenzioso"
         case "Energia": return "Cavo e wireless"
         case "Sicurezza": return "Face ID o Touch ID"
@@ -120,6 +121,7 @@ enum Catalog {
         case "gps": return "location.fill"
         case "bluetooth": return "antenna.radiowaves.left.and.right"
         case "nfc": return "wave.3.right"
+        case "cellular": return "cellularbars"
         case "volume_up": return "speaker.plus.fill"
         case "volume_down": return "speaker.minus.fill"
         case "power_button": return "power"

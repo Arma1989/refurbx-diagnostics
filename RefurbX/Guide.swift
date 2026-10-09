@@ -77,6 +77,7 @@ private enum GuideCopy {
         case "gps": return "Consente la posizione precisa. Si apre una mappa con il punto reale: confermi tu quando è quello giusto."
         case "bluetooth": return "Resta sulla schermata. Si vede se il Bluetooth è acceso. Se è spento, accendilo e riprova."
         case "nfc": return "Premi Apri lettore tag. Si apre la finestra di Apple: tieni la scheda ferma sul retro, in alto."
+        case "cellular": return "Controllo se la radio è agganciata a una cella. Se compare 4G o 5G, il telefono prende il segnale. Il Wi-Fi acceso non conta."
         case "volume_up": return "Premi volume più. Compare una spunta appena il tasto risponde."
         case "volume_down": return "Premi volume meno. Compare una spunta appena il tasto risponde."
         case "power_button":
@@ -89,7 +90,13 @@ private enum GuideCopy {
             return "Sposta l'interruttore. In grande compare Suono o Silenzioso. L'app non emette suoni. La spunta arriva solo quando diventa silenzioso."
         case "charging": return "Collega il cavo. Il test passa quando il sistema vede la carica."
         case "wireless": return "Stacca il cavo e appoggia il telefono sul pad. Passa solo se, da staccato, torna in carica."
-        case "biometrics": return "Usa il volto o l'impronta, se il telefono la chiede."
+        case "biometrics":
+            if FaceProbe.prefersTouch() {
+                return "Appoggia il dito \(HardwareFit.fingerprintPlace). Il test passa solo se l'impronta è quella registrata."
+            }
+            return HardwareFit.pad
+                ? "Guarda lo schermo. Compare la richiesta Face ID. Il test passa solo se il volto è quello registrato."
+                : "Guarda il telefono. Compare la richiesta Face ID. Il test passa solo se il volto è quello registrato."
         default: return "Guarda l'esempio, poi inizia. Puoi sempre saltare."
         }
     }
@@ -238,7 +245,7 @@ private struct DemoScene: View {
                 compassDemo
             case "gps":
                 pinPulse
-            case "bluetooth", "nfc", "network":
+            case "bluetooth", "nfc", "network", "cellular":
                 radioWaves
             case "volume_up", "volume_down", "power_button":
                 sideButton

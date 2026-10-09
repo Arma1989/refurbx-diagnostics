@@ -216,16 +216,20 @@ private struct RefurbBanner: View {
     @Environment(\.openURL) private var openURL
 
     private let links: [(symbol: String, title: String, href: String)] = [
-        ("iphone", "Vuoi vendere il tuo iPhone?", "https://refurbx.eu/ritiro-usato"),
-        ("storefront", "Vuoi vendere nel nostro marketplace?", "https://refurbx.eu/refurbx/annunci-locali"),
-        ("bag", "Vuoi acquistare un iPhone?", "https://refurbx.eu/products"),
+        ("iphone", "Vendi il tuo iPhone", "https://refurbx.eu/ritiro-usato"),
+        ("storefront", "Metti un annuncio", "https://refurbx.eu/refurbx/annunci-locali"),
+        ("bag", "Compra un iPhone", "https://refurbx.eu/products"),
     ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Scopri RefurbX")
+            Text("RefurbX")
                 .font(Look.text(18, .semibold))
                 .foregroundStyle(Look.title)
+            Text("Qui si comprano e si vendono iPhone usati. Il test di questa app è lo stesso del negozio.")
+                .font(Look.text(14))
+                .foregroundStyle(Look.ink)
+                .fixedSize(horizontal: false, vertical: true)
             VStack(spacing: 8) {
                 ForEach(links, id: \.href) { link in
                     Button {
@@ -362,7 +366,7 @@ private struct RunScreen: View {
                 .foregroundStyle(Look.title)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        } else if model.currentId == "network" || model.currentId == "bluetooth" {
+        } else if model.currentId == "network" || model.currentId == "bluetooth" || model.currentId == "cellular" {
             KeyMark(on: model.keyOk, waiting: model.detail.isEmpty ? "Controllo" : model.detail)
         } else if model.currentId == "volume_up" || model.currentId == "volume_down" || model.currentId == "power_button" {
             ZStack {
@@ -1578,6 +1582,7 @@ private struct BrandLogo: View {
         Group {
             if let logo = BrandMark.image() {
                 Image(uiImage: logo)
+                    .interpolation(.high)
                     .resizable()
                     .scaledToFit()
             } else {

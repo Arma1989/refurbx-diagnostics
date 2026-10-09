@@ -3,6 +3,7 @@ import AudioToolbox
 import AVFoundation
 import CoreBluetooth
 import CoreLocation
+import CoreTelephony
 import CoreMotion
 import CoreNFC
 import LocalAuthentication
@@ -32,9 +33,9 @@ enum HardwareFit {
         case "mute_switch":
             return hasSilentControl
         case "wireless":
-            if pad { return false }
-            guard let major = Machine.iphoneMajor else { return true }
-            return major >= 10
+            return hasWirelessCharge
+        case "vibration":
+            return !pad
         case "nfc":
             return NFCTagReaderSession.readingAvailable
         case "proximity", "earpiece", "call":
@@ -62,8 +63,32 @@ enum HardwareFit {
 
     static var hasSilentControl: Bool {
         if Machine.iphoneMajor != nil { return true }
-        guard let major = Machine.ipadMajor else { return false }
+        return hasHomeButton
+    }
+
+    /// iPad con tasto Home: fino alla 9ª generazione, Air 3 e mini 5. Gli altri hanno il tasto in alto.
+    static var hasHomeButton: Bool {
+        guard pad, let major = Machine.ipadMajor else { return false }
         return major <= 7 || major == 11 || major == 12
+    }
+
+    /// Dove si appoggia il dito. Il Duo lo legge sul tasto laterale; gli iPhone con Touch ID sul tasto Home.
+    static var fingerprintPlace: String {
+        if Machine.isDuo { return "sul tasto laterale" }
+        if pad && !hasHomeButton { return "sul tasto in alto" }
+        return "sul tasto Home"
+    }
+
+    static var hasWirelessCharge: Bool {
+        if pad { return false }
+        switch Machine.identifier {
+        case "iPhone12,8", "iPhone14,6", "iPhone17,5":
+            return false
+        default:
+            break
+        }
+        guard let major = Machine.iphoneMajor else { return true }
+        return major >= 10
     }
 
     static func rows(in group: String?) -> [Catalog.Row] {
@@ -1429,6 +1454,47 @@ enum NetworkProbe {
     }
 }
 
+enum CellProbe {
+    struct Report {
+        var registered: Bool
+        var headline: String
+        var note: String
+    }
+
+    static func read() -> Report {
+        let radios = CTTelephonyNetworkInfo().serviceCurrentRadioAccessTechnology ?? [:]
+        var seen: [String] = []
+        for tech in radios.values {
+            let label = name(tech)
+            if !seen.contains(label) {
+                seen.append(label)
+            }
+        }
+        guard !seen.isEmpty else {
+            return Report(registered: false, headline: "Nessun segnale", note: "Radio non agganciata")
+        }
+        let joined = seen.joined(separator: " e ")
+        return Report(registered: true, headline: joined, note: "Rete agganciata · \(joined)")
+    }
+
+    private static func name(_ tech: String) -> String {
+        switch tech {
+        case CTRadioAccessTechnologyNR, CTRadioAccessTechnologyNRNSA:
+            return "5G"
+        case CTRadioAccessTechnologyLTE:
+            return "4G"
+        case CTRadioAccessTechnologyWCDMA, CTRadioAccessTechnologyHSDPA, CTRadioAccessTechnologyHSUPA, CTRadioAccessTechnologyeHRPD:
+            return "3G"
+        case CTRadioAccessTechnologyEdge, CTRadioAccessTechnologyGPRS:
+            return "2G"
+        case CTRadioAccessTechnologyCDMA1x, CTRadioAccessTechnologyCDMAEVDORev0, CTRadioAccessTechnologyCDMAEVDORevA, CTRadioAccessTechnologyCDMAEVDORevB:
+            return "CDMA"
+        default:
+            return "Rete"
+        }
+    }
+}
+
 final class Gate {
     private var used = false
     func run(_ block: () -> Void) {
@@ -1688,12 +1754,35 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
 
 final class FaceProbe {
     private var context: LAContext?
+    private var generation = 0
+
+    static func prefersTouch() -> Bool {
+        if Machine.isDuo { return true }
+        let context = LAContext()
+        var error: NSError?
+        _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+        return context.biometryType == .touchID
+    }
 
     func run(done: @escaping (String, String) -> Void) {
+        generation += 1
+        attempt(token: generation, retriesLeft: 1, done: done)
+    }
+
+    func cancel() {
+        generation += 1
+        context?.invalidate()
+        context = nil
+    }
+
+    private func attempt(token: Int, retriesLeft: Int, done: @escaping (String, String) -> Void) {
+        guard token == generation else { return }
         let context = LAContext()
+        context.localizedFallbackTitle = ""
         self.context = context
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
+            guard token == generation else { return }
             let code = error.flatMap { LAError.Code(rawValue: $0.code) }
             if code == .biometryNotAvailable {
                 done("absent", "Nessun Face ID o Touch ID")
@@ -1704,28 +1793,44 @@ final class FaceProbe {
             }
             return
         }
-        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Prova il riconoscimento per la diagnosi") { ok, evalError in
-            DispatchQueue.main.async {
+        let touch = context.biometryType == .touchID || Machine.isDuo
+        let reason = touch ? "Prova l'impronta per la diagnosi" : "Prova Face ID per la diagnosi"
+        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { ok, evalError in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, token == self.generation else { return }
                 if ok {
-                    let touch = context.biometryType == .touchID || Machine.isDuo
                     done("pass", touch
-                        ? "Impronta accettata dal tasto laterale"
-                        : "Riconoscimento accettato. L'immagine a infrarossi resta nel sistema.")
-                } else {
-                    let code = (evalError as NSError?)?.code
-                    if code == LAError.userCancel.rawValue || code == LAError.appCancel.rawValue || code == LAError.systemCancel.rawValue || code == LAError.biometryLockout.rawValue {
-                        done("skip", "Riconoscimento annullato")
-                    } else {
-                        done("fail", evalError?.localizedDescription ?? "Riconoscimento rifiutato")
+                        ? "Impronta accettata \(HardwareFit.fingerprintPlace)"
+                        : "Face ID accettato. Il volto combacia con quello registrato.")
+                    return
+                }
+                let code = (evalError as NSError?)?.code
+                let closedBySystem = code == LAError.systemCancel.rawValue || code == LAError.appCancel.rawValue
+                if closedBySystem, retriesLeft > 0 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                        self?.attempt(token: token, retriesLeft: retriesLeft - 1, done: done)
                     }
+                    return
+                }
+                if code == LAError.userCancel.rawValue || code == LAError.userFallback.rawValue || closedBySystem {
+                    done("again", touch
+                        ? "La richiesta dell'impronta si è chiusa. Tocca Riprova impronta."
+                        : "La richiesta Face ID si è chiusa. Tocca Riprova Face ID.")
+                } else if code == LAError.biometryLockout.rawValue {
+                    done("again", touch
+                        ? "Impronta bloccata da troppi tentativi. Sblocca il telefono e tocca Riprova impronta."
+                        : "Face ID bloccato da troppi tentativi. Sblocca il telefono e tocca Riprova Face ID.")
+                } else if code == LAError.authenticationFailed.rawValue {
+                    done("again", touch
+                        ? "L'impronta non è stata accettata. Riprova, oppure segna Non funziona."
+                        : "Face ID ha risposto ma non ha accettato il volto. Riprova, oppure segna Non funziona.")
+                } else {
+                    done("again", evalError?.localizedDescription ?? (touch
+                        ? "L'impronta non ha risposto. Tocca Riprova impronta."
+                        : "Face ID non ha risposto. Tocca Riprova Face ID."))
                 }
             }
         }
-    }
-
-    func cancel() {
-        context?.invalidate()
-        context = nil
     }
 }
 

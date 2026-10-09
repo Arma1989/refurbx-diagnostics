@@ -6,7 +6,8 @@ enum BrandMark {
             return named
         }
         if let url = Bundle.main.url(forResource: "logo", withExtension: "png"),
-           let file = UIImage(contentsOfFile: url.path), file.size.width > 1 {
+           let data = try? Data(contentsOf: url),
+           let file = UIImage(data: data, scale: 3), file.size.width > 1 {
             return file
         }
         return UIImage(named: "Mark", in: .main, compatibleWith: nil)
