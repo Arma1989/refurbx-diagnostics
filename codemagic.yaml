@@ -123,3 +123,66 @@ workflows:
         cancel_previous_submissions: true
         release_type: MANUAL
         copyright: "2026 REFURBX S.R.L."
+
+  ios-ipad-screenshots:
+    name: RefurbX screenshot iPad
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      xcode: latest
+    scripts:
+      - name: Genera progetto
+        script: |
+          set -euo pipefail
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate
+      - name: Compila e acquisisci tre schermate iPad
+        script: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          from pathlib import Path
+          p = Path('RefurbX/DiagView.swift')
+          source = p.read_text()
+          marker = '        .preferredColorScheme(.light)'
+          assert marker in source, 'Punto di inserimento screenshot non trovato'
+          if '--store-screen' not in source:
+              source = source.replace(marker, base64.b64decode('ICAgICAgICAjaWYgdGFyZ2V0RW52aXJvbm1lbnQoc2ltdWxhdG9yKQogICAgICAgIC5vbkFwcGVhciB7CiAgICAgICAgICAgIGxldCBhcmdzID0gUHJvY2Vzc0luZm8ucHJvY2Vzc0luZm8uYXJndW1lbnRzCiAgICAgICAgICAgIGd1YXJkIGxldCBpbmRleCA9IGFyZ3MuZmlyc3RJbmRleChvZjogIi0tc3RvcmUtc2NyZWVuIiksIGFyZ3MuaW5kaWNlcy5jb250YWlucyhpbmRleCArIDEpIGVsc2UgeyByZXR1cm4gfQogICAgICAgICAgICBzd2l0Y2ggYXJnc1tpbmRleCArIDFdIHsKICAgICAgICAgICAgY2FzZSAidG91Y2giOgogICAgICAgICAgICAgICAgbW9kZWwucGxhbiA9IFsidG91Y2giXQogICAgICAgICAgICAgICAgbW9kZWwuaW5kZXggPSAwCiAgICAgICAgICAgICAgICBtb2RlbC5jdXJyZW50SWQgPSAidG91Y2giCiAgICAgICAgICAgICAgICBtb2RlbC5waGFzZSA9ICJydW4iCiAgICAgICAgICAgIGNhc2UgInJlcG9ydCI6CiAgICAgICAgICAgICAgICBtb2RlbC5wbGFuID0gSGFyZHdhcmVGaXQucm93cyhpbjogbmlsKS5tYXAoXC5pZCkKICAgICAgICAgICAgICAgIG1vZGVsLnBoYXNlID0gInJlcG9ydCIKICAgICAgICAgICAgZGVmYXVsdDoKICAgICAgICAgICAgICAgIGJyZWFrCiAgICAgICAgICAgIH0KICAgICAgICB9CiAgICAgICAgI2VuZGlmCg==').decode() + marker, 1)
+              p.write_text(source)
+          PY
+          mkdir -p screenshots
+          xcrun simctl list devices available -j > /tmp/refurbx-simulators.json
+          DEVICE_ID=$(python3 - <<'PY'
+          import json
+          data = json.load(open('/tmp/refurbx-simulators.json'))
+          candidates = []
+          for runtime, devices in data['devices'].items():
+              if 'iOS' not in runtime:
+                  continue
+              for device in devices:
+                  name = device['name']
+                  if 'iPad Pro' in name and ('13-inch' in name or '12.9-inch' in name):
+                      candidates.append(device)
+          if not candidates:
+              raise SystemExit('Nessun simulatore iPad Pro 13 o 12.9 disponibile.')
+          candidates.sort(key=lambda d: ('13-inch' in d['name'], d['name']))
+          print(candidates[-1]['udid'])
+          PY
+          )
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcrun simctl status_bar "$DEVICE_ID" override --time '9:41' --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 100
+          xcodebuild -project RefurbX.xcodeproj -scheme RefurbX -configuration Debug -sdk iphonesimulator -destination "id=$DEVICE_ID" -derivedDataPath build/screenshots CODE_SIGNING_ALLOWED=NO build > screenshots/build.log 2>&1
+          xcrun simctl install "$DEVICE_ID" build/screenshots/Build/Products/Debug-iphonesimulator/RefurbX.app
+          for screen in home touch report; do
+            xcrun simctl terminate "$DEVICE_ID" eu.refurbx.diagnostics || true
+            xcrun simctl launch "$DEVICE_ID" eu.refurbx.diagnostics --store-screen "$screen"
+            sleep 5
+            xcrun simctl io "$DEVICE_ID" screenshot "screenshots/iPad-$screen.png"
+          done
+          for image in screenshots/*.png; do
+            sips -g pixelWidth -g pixelHeight "$image"
+          done
+    artifacts:
+      - screenshots/*.png
+      - screenshots/build.log
