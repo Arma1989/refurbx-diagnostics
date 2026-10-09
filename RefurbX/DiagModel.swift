@@ -178,6 +178,8 @@ final class DiagModel: ObservableObject {
     private var lightUsesFrames = false
     private var playback: AVAudioPlayer?
     private var observers: [NSObjectProtocol] = []
+    private var proximityCovered = false
+    private var proximityArmed = false
     private var micQueue: [AVAudioSessionDataSourceDescription] = []
     private var micCursor = 0
     private var micLines: [String] = []
@@ -593,6 +595,8 @@ final class DiagModel: ObservableObject {
         qrOnce = false
         fingers = 0
         proximityLit = false
+        proximityCovered = false
+        proximityArmed = false
         depthShot = nil
         lensName = ""
         openedLenses = []
@@ -1839,32 +1843,68 @@ final class DiagModel: ObservableObject {
     }
 
     private func watchProximity() {
+        proximityLit = false
+        proximityCovered = false
+        proximityArmed = false
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [])
         try? session.setActive(true)
         let device = UIDevice.current
         device.isProximityMonitoringEnabled = true
         guard device.isProximityMonitoringEnabled else {
+            releaseProximity()
             settle("proximity", "absent", "Niente sensore di prossimità")
             return
         }
-        hint = "Copri il sensore in alto, vicino alla capsula. Lo schermo può spegnersi un attimo."
+        hint = "Copri il sensore in alto, vicino alla capsula, poi allontana la mano. Lo schermo può spegnersi solo mentre è coperto."
+        detail = "Avvicina la mano"
         actions = [
             Act(label: "Non reagisce", status: "fail", note: "Il sensore di prossimità non reagisce"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
         watch(UIDevice.proximityStateDidChangeNotification) { [weak self] in
+            guard let self, self.proximityArmed else { return }
+            self.noteProximity(UIDevice.current.proximityState)
+        }
+        later(0.45) {
+            guard self.still("proximity") else { return }
+            self.proximityArmed = true
             if UIDevice.current.proximityState {
-                self?.proximityLit = true
-                self?.settle("proximity", "pass", "Sensore di prossimità attivato")
-            }
-        }
-        later(0.6) {
-            if self.still("proximity") && UIDevice.current.proximityState {
                 self.proximityLit = true
-                self.settle("proximity", "pass", "Sensore di prossimità attivato")
+                self.proximityCovered = true
+                self.detail = "Coperto. Allontana la mano."
+            } else {
+                self.detail = "Avvicina la mano al sensore"
             }
         }
+    }
+
+    private func noteProximity(_ near: Bool) {
+        guard still("proximity"), proximityArmed else { return }
+        if near {
+            proximityLit = true
+            proximityCovered = true
+            detail = "Coperto. Allontana la mano."
+            return
+        }
+        guard proximityCovered else {
+            proximityLit = false
+            detail = "Avvicina la mano al sensore"
+            return
+        }
+        proximityArmed = false
+        releaseProximity()
+        later(0.35) {
+            guard self.still("proximity") else { return }
+            self.settle("proximity", "pass", "Sensore coperto e poi libero")
+        }
+    }
+
+    private func releaseProximity() {
+        UIDevice.current.isProximityMonitoringEnabled = false
+        let session = AVAudioSession.sharedInstance()
+        try? session.setActive(false, options: [.notifyOthersOnDeactivation])
+        try? session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
     }
 
     private func startCompass() {
@@ -2077,7 +2117,7 @@ final class DiagModel: ObservableObject {
         volumeDidSet = false
         volumeToken += 1
         muteToken += 1
-        UIDevice.current.isProximityMonitoringEnabled = false
+        releaseProximity()
         for token in observers {
             NotificationCenter.default.removeObserver(token)
         }

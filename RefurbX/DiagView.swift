@@ -71,12 +71,8 @@ private struct IntroScreen: View {
     private var home: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 0) {
-                Image("Logo")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 168, height: 126, alignment: .leading)
+                BrandLogo(width: 210, height: 132)
                     .padding(.leading, -8)
-                    .accessibilityLabel("RefurbX")
                 Text("DIAGNOSTICA")
                     .font(Look.text(12, .semibold))
                     .tracking(1.8)
@@ -394,6 +390,8 @@ private struct RunScreen: View {
             AccelPad(model: model)
         } else if model.currentId == "gyroscope" {
             GyroList(model: model)
+        } else if model.currentId == "proximity" {
+            ProximityMark(on: model.proximityLit, detail: model.detail)
         } else if model.currentId == "compass" {
             CompassRing(marks: model.compassMarks, heading: model.heading)
         } else if model.currentId == "truedepth" {
@@ -448,14 +446,29 @@ private struct RunScreen: View {
                     HStack(spacing: 8) {
                         ForEach(model.lenses, id: \.rawValue) { type in
                             let title = DiagModel.lensTitle(type)
-                            Button(title) { model.useLens(type) }
-                                .font(.footnote.weight(.semibold))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
-                                .background(model.lens == type ? cyan : Color.white.opacity(0.12), in: Capsule())
-                                .foregroundStyle(model.lens == type ? navy : .white)
+                            let on = model.lens == type
+                            Button {
+                                model.useLens(type)
+                            } label: {
+                                Text(title)
+                                    .font(Look.text(13, .semibold))
+                                    .foregroundStyle(on ? Color.white : Look.title)
+                                    .lineLimit(2)
+                                    .minimumScaleFactor(0.7)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 8)
+                                    .frame(maxWidth: .infinity, minHeight: 48)
+                                    .background(on ? Look.cyan : Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                            .stroke(on ? Color.clear : Look.title.opacity(0.28), lineWidth: 1)
+                                    )
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
+                    .layoutPriority(1)
                 }
             }
         } else {
@@ -1554,6 +1567,55 @@ private struct ButtonTrio: View {
         .padding(.vertical, 12)
         .background(Look.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Look.line, lineWidth: 1))
+    }
+}
+
+private struct BrandLogo: View {
+    var width: CGFloat = 210
+    var height: CGFloat = 132
+
+    var body: some View {
+        Group {
+            if let logo = BrandMark.image() {
+                Image(uiImage: logo)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Text("RefurbX")
+                    .font(Look.text(28, .semibold))
+                    .foregroundStyle(Look.title)
+            }
+        }
+        .frame(width: width, height: height, alignment: .leading)
+        .accessibilityLabel("RefurbX")
+    }
+}
+
+private struct ProximityMark: View {
+    let on: Bool
+    let detail: String
+
+    var body: some View {
+        VStack(spacing: 18) {
+            ZStack {
+                Circle()
+                    .fill(on ? Look.cyan.opacity(0.18) : Color.white)
+                    .frame(width: 180, height: 180)
+                    .overlay(Circle().stroke(on ? Look.cyan : Look.title.opacity(0.28), lineWidth: 3))
+                Image(systemName: on ? "hand.raised.fill" : "hand.raised")
+                    .font(Look.text(64, .semibold))
+                    .foregroundStyle(on ? Look.cyan : Look.title)
+            }
+            Text(on ? "Coperto" : "Libero")
+                .font(Look.text(34, .semibold))
+                .foregroundStyle(Look.title)
+            Text(detail.isEmpty ? "Avvicina la mano al sensore in alto" : detail)
+                .font(Look.text(17, .semibold))
+                .foregroundStyle(Look.ink)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 12)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

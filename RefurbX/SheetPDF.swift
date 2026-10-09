@@ -1,5 +1,18 @@
 import UIKit
 
+enum BrandMark {
+    static func image() -> UIImage? {
+        if let named = UIImage(named: "Logo", in: .main, compatibleWith: nil), named.size.width > 1 {
+            return named
+        }
+        if let url = Bundle.main.url(forResource: "logo", withExtension: "png"),
+           let file = UIImage(contentsOfFile: url.path), file.size.width > 1 {
+            return file
+        }
+        return UIImage(named: "Mark", in: .main, compatibleWith: nil)
+    }
+}
+
 struct SheetFacts {
     let grade: String
     let title: String
@@ -95,7 +108,7 @@ enum SheetPDF {
 
         let logoHeight: CGFloat = 78
         var textX: CGFloat = 36
-        if let logo = UIImage(named: "Logo") {
+        if let logo = BrandMark.image() {
             let ratio = logo.size.width / max(logo.size.height, 1)
             let logoWidth = logoHeight * ratio
             logo.draw(in: CGRect(x: 28, y: (headerHeight - logoHeight) / 2, width: logoWidth, height: logoHeight))
@@ -153,7 +166,7 @@ enum SheetPDF {
         UIGraphicsPopContext()
         context.beginPage()
         UIGraphicsPushContext(context.cgContext)
-        if let logo = UIImage(named: "Logo") {
+        if let logo = BrandMark.image() {
             let height: CGFloat = 28
             let ratio = logo.size.width / max(logo.size.height, 1)
             logo.draw(in: CGRect(x: 36, y: 16, width: height * ratio, height: height))
