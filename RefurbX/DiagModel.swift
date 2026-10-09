@@ -310,9 +310,9 @@ final class DiagModel: ObservableObject {
         case "bt-retry":
             startBluetooth()
         case "open-wifi":
-            openRadio("WIFI")
+            openRadio(wifi: true)
         case "open-bluetooth":
-            openRadio("Bluetooth")
+            openRadio(wifi: false)
         case "open-settings":
             if let url = URL(string: UIApplication.openSettingsURLString) {
                 UIApplication.shared.open(url)
@@ -351,8 +351,15 @@ final class DiagModel: ObservableObject {
         }
     }
 
-    private func openRadio(_ page: String) {
-        openRadioCandidates(["App-Prefs:\(page)", "App-prefs:root=\(page)", "prefs:root=\(page)"], index: 0)
+    private func openRadio(wifi: Bool) {
+        let pane = wifi ? "WiFi" : "Bluetooth"
+        let legacy = wifi ? "WIFI" : "Bluetooth"
+        openRadioCandidates([
+            "settings-navigation://com.apple.Settings.\(pane)",
+            "App-Prefs:root=\(legacy)",
+            "App-prefs:root=\(legacy)",
+            "prefs:root=\(legacy)",
+        ], index: 0)
     }
 
     private func openRadioCandidates(_ raw: [String], index: Int) {

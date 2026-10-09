@@ -17,9 +17,9 @@
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0.77</string>
+  <string>1.0.78</string>
   <key>CFBundleVersion</key>
-  <string>78</string>
+  <string>79</string>
   <key>ITSAppUsesNonExemptEncryption</key>
   <false/>
   <key>LSRequiresIPhoneOS</key>
@@ -76,6 +76,7 @@
   </array>
   <key>LSApplicationQueriesSchemes</key>
   <array>
+    <string>settings-navigation</string>
     <string>App-Prefs</string>
     <string>prefs</string>
   </array>
