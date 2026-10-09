@@ -1,0 +1,76 @@
+name: Screenshot iPad
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  screenshots:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepara schermate
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('RefurbX/DiagView.swift')
+          s = p.read_text()
+          marker = '        .preferredColorScheme(.light)'
+          assert marker in s
+          hook = '''
+                  #if targetEnvironment(simulator)
+                  .onAppear {
+                      let args = ProcessInfo.processInfo.arguments
+                      guard let i = args.firstIndex(of: "--store-screen"), args.indices.contains(i + 1) else { return }
+                      switch args[i + 1] {
+                      case "touch":
+                          model.plan = ["touch"]
+                          model.index = 0
+                          model.currentId = "touch"
+                          model.phase = "run"
+                      case "report":
+                          model.plan = HardwareFit.rows(in: nil).map(\.id)
+                          model.phase = "report"
+                      default: break
+                      }
+                  }
+                  #endif
+          '''
+          if '--store-screen' not in s:
+              p.write_text(s.replace(marker, hook + marker, 1))
+          PY
+          brew install xcodegen
+          xcodegen generate
+      - name: Compila e acquisisci screenshot
+        run: |
+          set -euo pipefail
+          mkdir -p screenshots
+          xcrun simctl list devices available -j > /tmp/devices.json
+          DEVICE_ID=$(python3 - <<'PY'
+          import json
+          candidates = [d for r, ds in json.load(open('/tmp/devices.json'))['devices'].items() if 'iOS' in r for d in ds if 'iPad Pro' in d['name'] and ('13-inch' in d['name'] or '12.9-inch' in d['name'])]
+          assert candidates, 'Nessun simulatore iPad Pro 13 disponibile'
+          print(candidates[-1]['udid'])
+          PY
+          )
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcrun simctl status_bar "$DEVICE_ID" override --time '9:41' --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 100
+          xcodebuild -project RefurbX.xcodeproj -scheme RefurbX -configuration Debug -sdk iphonesimulator -destination "id=$DEVICE_ID" -derivedDataPath build/screenshots CODE_SIGNING_ALLOWED=NO build > screenshots/build.log 2>&1
+          xcrun simctl install "$DEVICE_ID" build/screenshots/Build/Products/Debug-iphonesimulator/RefurbX.app
+          for screen in home touch report; do
+            xcrun simctl terminate "$DEVICE_ID" eu.refurbx.diagnostics || true
+            xcrun simctl launch "$DEVICE_ID" eu.refurbx.diagnostics --store-screen "$screen"
+            sleep 5
+            xcrun simctl io "$DEVICE_ID" screenshot "screenshots/iPad-$screen.png"
+          done
+          for image in screenshots/*.png; do
+            sips -g pixelWidth -g pixelHeight "$image"
+          done
+      - name: Salva PNG e log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Screenshot-iPad
+          path: screenshots/
+          if-no-files-found: error
