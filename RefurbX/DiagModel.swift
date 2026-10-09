@@ -151,6 +151,7 @@ final class DiagModel: ObservableObject {
     private var bestGps: CLLocation?
     private var settled = false
     private var wave = 0
+    private var awaitingSettings = false
     private var volumePrevious: Float = -1
     private var volumeTimer: Timer?
     private var volumeObservation: NSKeyValueObservation?
@@ -315,8 +316,19 @@ final class DiagModel: ObservableObject {
             openRadio(wifi: false)
         case "open-settings":
             if let url = URL(string: UIApplication.openSettingsURLString) {
+                awaitingSettings = true
                 UIApplication.shared.open(url)
             }
+        case "open-biometry":
+            openPane(["settings-navigation://com.apple.Settings.Passcode"])
+        case "open-location":
+            openPane(["settings-navigation://com.apple.Settings.PrivacyAndSecurity/LOCATION"])
+        case "open-camera":
+            openPane(["settings-navigation://com.apple.Settings.PrivacyAndSecurity/CAMERA"])
+        case "open-mic":
+            openPane(["settings-navigation://com.apple.Settings.PrivacyAndSecurity/MICROPHONE"])
+        case "perm-retry":
+            launch()
         case "nfc-retry":
             break
         case "lidar-ok":
@@ -340,8 +352,22 @@ final class DiagModel: ObservableObject {
 
     func onScenePhase(_ phase: ScenePhase) {
         guard phase == .active, !settled else { return }
+        let resume = awaitingSettings
+        awaitingSettings = false
         if currentId == "gps" {
             place.requestFix()
+        }
+        if resume {
+            switch currentId {
+            case "biometrics", "camera_back", "camera_front", "flash", "autofocus", "lidar", "microphone":
+                launch()
+                return
+            case "compass":
+                place.startHeading()
+                return
+            default:
+                break
+            }
         }
         if keyOk { return }
         if currentId == "network" {
@@ -354,12 +380,30 @@ final class DiagModel: ObservableObject {
     private func openRadio(wifi: Bool) {
         let pane = wifi ? "WiFi" : "Bluetooth"
         let legacy = wifi ? "WIFI" : "Bluetooth"
+        awaitingSettings = true
         openRadioCandidates([
             "settings-navigation://com.apple.Settings.\(pane)",
             "App-Prefs:root=\(legacy)",
             "App-prefs:root=\(legacy)",
             "prefs:root=\(legacy)",
         ], index: 0)
+    }
+
+    private func openPane(_ urls: [String]) {
+        awaitingSettings = true
+        openRadioCandidates(urls, index: 0)
+    }
+
+    private func holdForPermission(camera: Bool) {
+        hint = camera
+            ? "Fotocamera negata. Apri Fotocamera, attiva RefurbX e torna qui."
+            : "Microfono negato. Apri Microfono, attiva RefurbX e torna qui."
+        detail = "Permesso assente"
+        actions = [
+            Act(label: camera ? "Apri Fotocamera" : "Apri Microfono", status: camera ? "open-camera" : "open-mic", note: ""),
+            Act(label: "Riprova", status: "perm-retry", note: ""),
+            Act(label: "Salta", status: "skip", note: camera ? "Permesso fotocamera negato" : "Permesso microfono negato"),
+        ]
     }
 
     private func openRadioCandidates(_ raw: [String], index: Int) {
@@ -1073,7 +1117,7 @@ final class DiagModel: ObservableObject {
         gpsLongitude = nil
         bestGps = nil
         actions = [
-            Act(label: "Apri Impostazioni", status: "open-settings", note: ""),
+            Act(label: "Apri Posizione", status: "open-location", note: ""),
             Act(label: "Nessun fix", status: "skip", note: "Nessun fix"),
         ]
         place.onFix = { [weak self] location in
@@ -1094,17 +1138,17 @@ final class DiagModel: ObservableObject {
             }
             self.actions = [
                 Act(label: "Posizione corretta", status: "pass", note: "Fix ±\(meters) m"),
-                Act(label: "Apri Impostazioni", status: "open-settings", note: ""),
+                Act(label: "Apri Posizione", status: "open-location", note: ""),
                 Act(label: "Nessun fix", status: "skip", note: "Nessun fix utile"),
             ]
         }
         place.onDenied = { [weak self] in
             guard let self, self.still("gps") else { return }
-            self.hint = "Posizione negata. In Impostazioni consenti Posizione e Precisa, poi torna nell'app."
+            self.hint = "Posizione negata. Apri Posizione, consenti RefurbX e Precisa, poi torna nell'app."
             self.detail = "Permesso assente"
             self.gpsAccuracy = "Negato"
             self.actions = [
-                Act(label: "Apri Impostazioni", status: "open-settings", note: ""),
+                Act(label: "Apri Posizione", status: "open-location", note: ""),
                 Act(label: "Salta", status: "skip", note: "Permesso posizione negato"),
             ]
         }
@@ -1586,13 +1630,21 @@ final class DiagModel: ObservableObject {
         ]
     }
 
+    private func biometrySetupActions(touch: Bool) -> [Act] {
+        [
+            Act(label: touch ? "Apri impronta" : "Apri Face ID", status: "open-biometry", note: ""),
+            Act(label: touch ? "Riprova impronta" : "Riprova Face ID", status: "face-retry", note: ""),
+            Act(label: "Salta", status: "skip", note: "Nessun volto o impronta registrata"),
+        ]
+    }
+
     private func armBiometrics(touch: Bool) {
         face.run { [weak self] status, note in
             guard let self, self.still("biometrics") else { return }
-            if status == "again" {
+            if status == "again" || status == "setup" {
                 self.hint = note
-                self.detail = "In attesa"
-                self.actions = self.biometryActions(touch: touch)
+                self.detail = status == "setup" ? "Da registrare" : "In attesa"
+                self.actions = status == "setup" ? self.biometrySetupActions(touch: touch) : self.biometryActions(touch: touch)
                 return
             }
             self.settle("biometrics", status, note)
@@ -1653,7 +1705,7 @@ final class DiagModel: ObservableObject {
             DispatchQueue.main.async {
                 guard self.still(id) else { return }
                 guard granted else {
-                    self.settle(id, "skip", "Permesso fotocamera negato")
+                    self.holdForPermission(camera: true)
                     return
                 }
                 self.showCamera = true
@@ -1699,7 +1751,7 @@ final class DiagModel: ObservableObject {
             DispatchQueue.main.async {
                 guard self.still("flash") else { return }
                 guard granted else {
-                    self.settle("flash", "skip", "Permesso fotocamera negato")
+                    self.holdForPermission(camera: true)
                     return
                 }
                 self.camera.stop {
@@ -1745,7 +1797,7 @@ final class DiagModel: ObservableObject {
             DispatchQueue.main.async {
                 guard self.still("autofocus") else { return }
                 guard granted else {
-                    self.settle("autofocus", "skip", "Permesso fotocamera negato")
+                    self.holdForPermission(camera: true)
                     return
                 }
                 self.showCamera = true
@@ -1833,7 +1885,7 @@ final class DiagModel: ObservableObject {
             DispatchQueue.main.async {
                 guard self.still("lidar") else { return }
                 guard granted else {
-                    self.settle("lidar", "skip", "Permesso fotocamera negato")
+                    self.holdForPermission(camera: true)
                     return
                 }
                 self.camera.stop {
@@ -2003,9 +2055,9 @@ final class DiagModel: ObservableObject {
         }
         place.onDenied = { [weak self] in
             guard let self, self.still("compass") else { return }
-            self.hint = "La bussola chiede la posizione. Consenti Posizione, poi torna nell'app e ruota il telefono."
+            self.hint = "La bussola chiede la posizione. Apri Posizione, consenti RefurbX, poi torna nell'app e ruota il telefono."
             self.actions = [
-                Act(label: "Apri Impostazioni", status: "open-settings", note: ""),
+                Act(label: "Apri Posizione", status: "open-location", note: ""),
                 Act(label: "Salta", status: "skip", note: "Permesso posizione negato"),
             ]
         }
@@ -2067,7 +2119,7 @@ final class DiagModel: ObservableObject {
             DispatchQueue.main.async {
                 guard self.still("microphone") else { return }
                 guard granted else {
-                    self.settle("microphone", "skip", "Permesso microfono negato")
+                    self.holdForPermission(camera: false)
                     return
                 }
                 self.micQueue = AudioRoute.micSources()

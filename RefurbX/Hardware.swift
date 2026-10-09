@@ -1787,7 +1787,10 @@ final class FaceProbe {
             if code == .biometryNotAvailable {
                 done("absent", "Nessun Face ID o Touch ID")
             } else if code == .biometryNotEnrolled {
-                done("skip", "Nessun volto o impronta registrata")
+                let touch = FaceProbe.prefersTouch()
+                done("setup", touch
+                    ? "Nessuna impronta registrata. Apri impronta, registra il dito e torna qui."
+                    : "Nessun volto registrato. Apri Face ID, registralo e torna qui.")
             } else {
                 done("skip", error?.localizedDescription ?? "Biometria non disponibile")
             }
