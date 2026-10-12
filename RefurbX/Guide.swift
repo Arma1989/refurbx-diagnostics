@@ -85,9 +85,9 @@ private enum GuideCopy {
             return "Tieni premuti insieme \(side) e volume +. Lo schermo resta acceso: iOS fa uno screenshot e il test passa."
         case "mute_switch":
             if HardwareFit.usesActionButton {
-                return "Premi il tasto Azione. In grande compare Suono o Silenzioso. L'app non emette suoni. La spunta arriva solo quando diventa silenzioso."
+                return "Premi il tasto Azione. Con Suono senti un tic breve. Passa a Silenzioso: il tic sparisce e compare la spunta."
             }
-            return "Sposta l'interruttore. In grande compare Suono o Silenzioso. L'app non emette suoni. La spunta arriva solo quando diventa silenzioso."
+            return "Sposta l'interruttore. Con Suono senti un tic breve. Passa a Silenzioso: il tic sparisce e compare la spunta."
         case "charging": return "Collega il cavo. Il test passa quando il sistema vede la carica."
         case "wireless": return "Stacca il cavo e appoggia il telefono sul pad. Passa solo se, da staccato, torna in carica."
         case "biometrics":

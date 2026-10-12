@@ -1192,8 +1192,8 @@ final class DiagModel: ObservableObject {
         }
         if plan.contains("mute_switch") {
             let mute = HardwareFit.usesActionButton
-                ? "Poi premi il tasto Azione fino a Silenzioso."
-                : "Poi sposta l'interruttore fino a Silenzioso."
+                ? "Poi premi il tasto Azione fino a Silenzioso. Con Suono senti un tic."
+                : "Poi sposta l'interruttore fino a Silenzioso. Con Suono senti un tic."
             parts.append(mute)
         }
         parts.append("Se uno non va, segna Non va solo su quella riga.")
@@ -1433,8 +1433,8 @@ final class DiagModel: ObservableObject {
         muteSawSound = false
         let action = HardwareFit.usesActionButton
         hint = action
-            ? "Premi il tasto Azione finché in grande compare Silenzioso. L'app non emette suoni."
-            : "Sposta l'interruttore finché in grande compare Silenzioso. L'app non emette suoni."
+            ? "Premi il tasto Azione. Con Suono senti un tic breve. Passa a Silenzioso: il tic sparisce."
+            : "Sposta l'interruttore. Con Suono senti un tic breve. Passa a Silenzioso: il tic sparisce."
         detail = "In attesa"
         actions = [
             Act(label: "Non commuta", status: "fail", note: action ? "Il tasto Azione non mette in silenzioso" : "L'interruttore non mette in silenzioso"),

@@ -1106,24 +1106,50 @@ final class MotionProbe {
 }
 
 final class RingerWatch {
-    private var token: Int32 = 0
-    private var armed = false
+    private var body: ((Bool) -> Void)?
+    private var soundId: SystemSoundID = 0
+    private var playing = false
+    private var generation = 0
 
+    /// Public system sound. iOS skips it when the ringer is silent, so a fast completion means silent.
     func start(_ body: @escaping (_ silent: Bool) -> Void) -> Bool {
         stop()
-        var registered: Int32 = 0
-        let ok = RingerNotify.watch(on: DispatchQueue.main, handler: body, token: &registered)
-        guard ok else { return false }
-        token = registered
-        armed = true
+        guard let url = Bundle.main.url(forResource: "ringer-probe", withExtension: "wav") else { return false }
+        var created: SystemSoundID = 0
+        guard AudioServicesCreateSystemSoundID(url as CFURL, &created) == kAudioServicesNoError else { return false }
+        soundId = created
+        self.body = body
+        generation += 1
+        probe(generation)
         return true
     }
 
     func stop() {
-        guard armed else { return }
-        RingerNotify.cancel(token)
-        armed = false
-        token = 0
+        generation += 1
+        body = nil
+        playing = false
+        if soundId != 0 {
+            AudioServicesDisposeSystemSoundID(soundId)
+            soundId = 0
+        }
+    }
+
+    private func probe(_ generation: Int) {
+        guard generation == self.generation, soundId != 0, !playing else { return }
+        playing = true
+        let started = Date()
+        let sound = soundId
+        AudioServicesPlaySystemSoundWithCompletion(sound) { [weak self] in
+            let elapsed = Date().timeIntervalSince(started)
+            DispatchQueue.main.async {
+                guard let self, generation == self.generation else { return }
+                self.playing = false
+                self.body?(elapsed < 0.2)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    self.probe(generation)
+                }
+            }
+        }
     }
 }
 
