@@ -1,10 +1,10 @@
 # RefurbX Diagnostica per iPhone e iPad
 
-App nativa dei test, versione 1.0.78 (build 80). Sul dispositivo il nome è **RefurbX Diagnostica**. Gira su iPhone e iPad. Team ID `L9F47LJC86`, bundle `eu.refurbx.diagnostics`.
+App nativa dei test, versione 1.0.79 (build 81). Sul dispositivo il nome è **RefurbX Diagnostica**. Gira su iPhone e iPad. Team ID `L9F47LJC86`, bundle `eu.refurbx.diagnostics`.
 
 Le prove che questo modello non ha restano in fondo, scure, e non partono. Su un altro dispositivo si accendono da sole: la penna sugli iPad che la ricevono, il 3D Touch sugli iPhone che lo hanno ancora.
 
-A fine diagnosi, nella scheda, scrivi solo il codice di sei lettere del banco, per esempio `Q2DRA7`, e premi **Invia al banco**. L'iPhone sente il computer sulla stessa Wi-Fi. Col cavo il programma Windows scrive `Documents/bench.url` e legge `Documents/outbox.json`: la scheda arriva anche senza Wi-Fi. Il banco può arrivare anche come argomento di avvio. Codemagic compila la 1.0.78 (build 80), carica l'IPA e la manda in revisione App Store. Il rilascio resta manuale: dopo l'ok di Apple l'app non va online da sola. TestFlight non parte da questa build, perché il limite della revisione beta esterna è già esaurito. L'IPA di TestFlight non si installa dal cavo su un iPhone qualsiasi: per quel pulsante serve l'IPA firmata per il telefono, salvata come `RefurbX.ipa` accanto a `project.yml`.
+A fine diagnosi, nella scheda, scrivi solo il codice di sei lettere del banco, per esempio `Q2DRA7`, e premi **Invia al banco**. L'iPhone sente il computer sulla stessa Wi-Fi. Col cavo il programma Windows scrive `Documents/bench.url` e legge `Documents/outbox.json`: la scheda arriva anche senza Wi-Fi. Il banco può arrivare anche come argomento di avvio. Codemagic compila la 1.0.79 (build 81) e carica l'IPA su App Store Connect. Non la manda in revisione da solo: prima va messo il video NFC e la risposta su TrueDepth. Il rilascio resta manuale: dopo l'ok di Apple l'app non va online da sola. TestFlight non parte da questa build, perché il limite della revisione beta esterna è già esaurito. L'IPA di TestFlight non si installa dal cavo su un iPhone qualsiasi: per quel pulsante serve l'IPA firmata per il telefono, salvata come `RefurbX.ipa` accanto a `project.yml`.
 
 Il permesso NFC è solo `TAG`. Prima della firma Codemagic attiva NFC Tag Reading sull'App ID, cancella i profili App Store di `eu.refurbx.diagnostics` che non contengono TAG (compreso quello del 5 ottobre) e ne crea uno nuovo. La firma sceglie soltanto un profilo App Store il cui entitlement decodificato contiene `com.apple.developer.nfc.readersession.formats` con TAG. Ogni altro profilo ios_app_store viene messo da parte, anche se il bundle coincide. Archivio ed export usano quel profilo e `RefurbX.entitlements`. Se nessun profilo installato contiene TAG, la build si ferma e non pubblica l'IPA. Dopo l'IPA, `codesign -d --entitlements` sull'app dentro Payload deve mostrare TAG, e il log stampa il nome del profilo. Non si aggiunge `NDEF`: App Store Connect lo rifiuta con l'errore 90778.
 
@@ -14,7 +14,7 @@ Prima di **Start build** la scheda dell'app deve già esistere su [App Store Con
 
 1. Chiave API già usata da Codemagic: Utenti e accessi, Integrazioni, accesso Admin o App Manager, nome integrazione `RefurbX`.
 2. App iOS con bundle `eu.refurbx.diagnostics`. Se non c'è, creala: nome **RefurbX Diagnostica**, lingua principale Italiano, SKU `refurbx-diagnostics`.
-3. Versione **1.0.78**. Compila questi campi e salva:
+3. Versione **1.0.79**. Compila questi campi e salva:
    - Sottotitolo: `Test hardware iPhone e iPad`
    - Categoria: Utilità
    - URL assistenza: `https://refurbx.eu`
@@ -37,7 +37,7 @@ Se il Wi-Fi è spento, il test apre la pagina Wi-Fi di Impostazioni.
 I test che il modello non ha restano spenti, in fondo alla lista.
 ```
 
-9. In Codemagic: **Check for configuration file**, poi **Start build** sul workflow RefurbX iOS. A fine build Codemagic invia la 1.0.78 in revisione e lascia il rilascio su **Manuale**. Quando Apple approva, su App Store Connect premi tu **Rilascia**. La revisione dura alcuni giorni: stasera parte la coda, non la pagina dello store.
+9. In Codemagic: **Check for configuration file**, poi **Start build** sul workflow RefurbX iOS. A fine build la 1.0.79 compare in App Store Connect, senza partire in revisione. Selezioni quella build, incolli il video NFC e la risposta su TrueDepth, poi premi **Aggiungi per la verifica**. Il rilascio resta manuale.
 
 La pagina `https://refurbx.eu/privacy-policy` è la privacy del negozio. Se Apple chiede che citi anche l'app di diagnosi, aggiungi lì questo paragrafo: RefurbX Diagnostica usa fotocamera, microfono, posizione, Bluetooth, NFC e Face ID o Touch ID solo per il test sul telefono. Foto e audio non vengono caricati. L'immagine a infrarossi di Face ID resta nel sistema. L'app non legge l'IMEI, non ha pubblicità e non traccia. La scheda esce dal telefono solo se la invii al computer del negozio.
 
