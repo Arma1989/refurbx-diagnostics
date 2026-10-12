@@ -117,9 +117,7 @@ workflows:
       - /tmp/xcodebuild_logs/*.log
     publishing:
       app_store_connect:
+        # Solo caricamento su App Store Connect. La revisione parte da lì, a mano.
         auth: integration
         submit_to_testflight: false
         submit_to_app_store: false
-        cancel_previous_submissions: true
-        release_type: MANUAL
-        copyright: "2026 REFURBX S.R.L."
