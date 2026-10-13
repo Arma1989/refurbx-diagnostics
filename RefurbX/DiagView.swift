@@ -219,6 +219,7 @@ private struct RefurbBanner: View {
         ("iphone", "Vendi il tuo iPhone", "https://refurbx.eu/ritiro-usato"),
         ("storefront", "Metti un annuncio", "https://refurbx.eu/refurbx/annunci-locali"),
         ("bag", "Compra un iPhone", "https://refurbx.eu/products"),
+        ("lock.shield", "Norme sulla privacy", "https://refurbx.eu/privacy-policy"),
     ]
 
     var body: some View {
