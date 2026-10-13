@@ -14,6 +14,11 @@ workflows:
     scripts:
       - name: Genera il progetto Xcode
         script: |
+          rm -f RefurbX/RingerNotify.m RefurbX/RingerNotify.h RefurbX/RefurbX-Bridging-Header.h
+          if grep -R -n --include='*.m' --include='*.h' --include='*.swift' --include='*.plist' "ringerstate\|springboard" . ; then
+            echo "Trovata l'API privata del tasto silenzioso. Pubblicazione interrotta."
+            exit 1
+          fi
           brew install xcodegen
           xcodegen generate
       - name: Prepara la firma
