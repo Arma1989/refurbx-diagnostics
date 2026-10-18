@@ -29,9 +29,15 @@ struct GuideScreen: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 54)
                 } else {
-                    BenchButton(title: "Inizia") { model.beginCurrent() }
+                    BenchButton(title: GuideCopy.needsSystemPermission(model.currentId) ? "Continua" : "Inizia") {
+                        model.beginCurrent()
+                    }
                 }
-                BenchButton(title: "Salta", kind: .secondary) { model.skipCurrent() }
+                // After the explanation, permission tests must open the system dialog.
+                // Salta here would skip that dialog (guideline 5.1.1(iv)).
+                if !GuideCopy.needsSystemPermission(model.currentId) {
+                    BenchButton(title: "Salta", kind: .secondary) { model.skipCurrent() }
+                }
             }
         }
     }
@@ -43,10 +49,20 @@ private enum GuideCopy {
         return "Volume +, volume −, accensione e silenzioso sono su questa schermata. Per l'accensione tieni premuti insieme \(side) e volume +: lo schermo resta acceso. Se uno non va, segna Non va solo su quella riga."
     }
 
+    /// Tests that show a custom screen and then need the system permission prompt.
+    static func needsSystemPermission(_ id: String) -> Bool {
+        switch id {
+        case "camera_back", "camera_front", "autofocus", "flash", "truedepth", "lidar",
+             "microphone", "gps", "bluetooth":
+            return true
+        default:
+            return false
+        }
+    }
+
     static func line(_ id: String) -> String {
         switch id {
         case "identity": return "Mostro il nome commerciale e il codice di fabbrica, per esempio iPhone 17 Pro Max e iPhone18,2."
-        case "memory": return "Mostro il totale, lo spazio libero e quello usato del telefono."
         case "network": return "Controllo se il Wi-Fi è collegato. Se non lo è, collega il Wi-Fi e riprova."
         case "display":
             if Machine.isDuo {
@@ -67,8 +83,8 @@ private enum GuideCopy {
         case "camera_front": return "Si apre la fotocamera davanti. Il volto deve essere dritto, in verticale."
         case "autofocus": return "Inquadra un codice QR con la camera dietro. Resta visibile il riquadro e il testo letto, poi si passa avanti."
         case "flash": return "Il flash si accende. Conferma solo se lo vedi acceso."
-        case "truedepth": return "In alto a destra vedi la fotocamera, come in una videochiamata. Al centro i puntini bianchi sono il volto TrueDepth: girano con la testa."
-        case "lidar": return "La vista a infrarossi resta aperta. Avvicina la mano: solo il vicino diventa più scuro."
+        case "truedepth": return "In alto a destra vedi l'anteprima a colori. I puntini sono la mesh del volto: girano con la testa. Restano in memoria solo in questa prova e non vengono inviati. L'infrarosso non arriva all'app."
+        case "lidar": return "Si apre la mappa di profondità, in grigio. Avvicina la mano: solo il vicino diventa più scuro. Non è un'immagine a infrarossi e non viene inviata."
         case "proximity": return "Copri il sensore in alto, vicino alla capsula."
         case "light": return "Metti una luce sul sensore davanti, in alto, finché la barra arriva al 100%."
         case "accelerometer": return "Inclina il telefono verso i quattro bordi, come la pallina."
@@ -85,9 +101,9 @@ private enum GuideCopy {
             return "Tieni premuti insieme \(side) e volume +. Lo schermo resta acceso: iOS fa uno screenshot e il test passa."
         case "mute_switch":
             if HardwareFit.usesActionButton {
-                return "Premi il tasto Azione. Con Suono senti un tic breve. Passa a Silenzioso: il tic sparisce e compare la spunta."
+                return "Premi il tasto Azione e passa da Suono a Silenzioso, poi di nuovo a Suono. Conferma tu: l'app non legge lo stato."
             }
-            return "Sposta l'interruttore. Con Suono senti un tic breve. Passa a Silenzioso: il tic sparisce e compare la spunta."
+            return "Sposta l'interruttore da Suono a Silenzioso, poi di nuovo a Suono. Conferma tu: l'app non legge lo stato."
         case "charging": return "Collega il cavo. Il test passa quando il sistema vede la carica."
         case "wireless": return "Stacca il cavo e appoggia il telefono sul pad. Passa solo se, da staccato, torna in carica."
         case "biometrics":
@@ -259,7 +275,7 @@ private struct DemoScene: View {
                 wirelessPad
             case "headphones":
                 earbuds
-            case "memory", "identity":
+            case "identity":
                 readout
             case "force":
                 forceDemo
@@ -608,10 +624,10 @@ private struct DemoScene: View {
             Text("RefurbX")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(cyan)
-            Text(testId == "memory" ? "256 GB" : "iPhone")
+            Text("iPhone")
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(Look.title)
-            Text(testId == "memory" ? "libero \(Int(20 + loop * 8)) GB" : "in lettura")
+            Text("in lettura")
                 .font(.footnote)
                 .foregroundStyle(ink)
         }

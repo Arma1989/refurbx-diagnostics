@@ -219,7 +219,6 @@ private struct RefurbBanner: View {
         ("iphone", "Vendi il tuo iPhone", "https://refurbx.eu/ritiro-usato"),
         ("storefront", "Metti un annuncio", "https://refurbx.eu/refurbx/annunci-locali"),
         ("bag", "Compra un iPhone", "https://refurbx.eu/products"),
-        ("lock.shield", "Norme sulla privacy", "https://refurbx.eu/privacy-policy"),
     ]
 
     var body: some View {
@@ -359,8 +358,6 @@ private struct RunScreen: View {
     @ViewBuilder private var stage: some View {
         if model.buttonBundle {
             ButtonTrio(model: model)
-        } else if model.currentId == "memory" {
-            MemoryBoard(total: model.memoryTotal, free: model.memoryFree, used: model.memoryUsed)
         } else if model.currentId == "identity" {
             Text(model.detail.isEmpty ? "Lettura del modello" : model.detail)
                 .font(Look.text(28, .semibold))
@@ -487,8 +484,7 @@ private struct RunScreen: View {
         case "volume_up": return "Premi volume +"
         case "power_button": return "Accensione + volume +"
         case "mute_switch":
-            if model.detail == "Suono" || model.detail == "Silenzioso" { return model.detail }
-            return HardwareFit.usesActionButton ? "Premi il tasto Azione" : "Sposta il silenzioso"
+            return model.detail.isEmpty ? "Conferma a mano" : model.detail
         default: return "In attesa"
         }
     }
@@ -1517,7 +1513,12 @@ private struct ButtonTrio: View {
                 }
             }
             if model.plan.contains("mute_switch") {
-                line("Silenzioso", mark: model.muteMark, live: model.muteWord.isEmpty ? "In attesa" : model.muteWord) {
+                line(
+                    "Silenzioso",
+                    mark: model.muteMark,
+                    live: model.muteWord.isEmpty ? "Spostalo, poi conferma" : model.muteWord,
+                    confirm: model.muteMark.isEmpty ? { model.confirmMute() } : nil
+                ) {
                     model.failButton("mute_switch")
                 }
             }
@@ -1530,7 +1531,7 @@ private struct ButtonTrio: View {
         }
     }
 
-    private func line(_ title: String, mark: String, live: String?, fail: @escaping () -> Void) -> some View {
+    private func line(_ title: String, mark: String, live: String?, confirm: (() -> Void)? = nil, fail: @escaping () -> Void) -> some View {
         HStack(spacing: 14) {
             ZStack {
                 Circle()
@@ -1553,13 +1554,21 @@ private struct ButtonTrio: View {
                 if let live {
                     Text(live)
                         .font(Look.text(28, .bold))
-                        .foregroundStyle(live == "Silenzioso" ? Look.pass : Look.title)
+                        .foregroundStyle(live == "Confermato" ? Look.pass : Look.title)
                         .minimumScaleFactor(0.6)
                         .lineLimit(1)
                 }
             }
             Spacer(minLength: 8)
             if mark.isEmpty {
+                if let confirm {
+                    Button("Conferma", action: confirm)
+                        .font(Look.text(15, .semibold))
+                        .foregroundStyle(Look.pass)
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 44)
+                        .background(Look.pass.opacity(0.14), in: Capsule())
+                }
                 Button("Non va", action: fail)
                     .font(Look.text(15, .semibold))
                     .foregroundStyle(Look.fail)
@@ -1948,8 +1957,7 @@ private struct MuteWord: View {
     let on: Bool
 
     private var word: String {
-        if detail == "Suono" || detail == "Silenzioso" { return detail }
-        return "In attesa"
+        detail.isEmpty ? "Conferma a mano" : detail
     }
 
     var body: some View {

@@ -140,7 +140,6 @@ final class DiagModel: ObservableObject {
     private let tone = TonePlayer()
     private let mic = MicProbe()
     private let motion = MotionProbe()
-    private let ringer = RingerWatch()
     private let place = PlaceProbe()
     private let radio = RadioProbe()
     private let depth = DepthProbe()
@@ -166,8 +165,6 @@ final class DiagModel: ObservableObject {
     private var volumeToken = 0
     private var volumeTarget: Float = 0.5
     private var pendingCamera: (() -> Void)?
-    private var muteToken = 0
-    private var muteSawSound = false
     private var buttonFinishQueued = false
     private static let buttonIds: Set<String> = ["volume_up", "volume_down", "power_button", "mute_switch"]
     private var lightWarm = 0
@@ -298,9 +295,7 @@ final class DiagModel: ObservableObject {
             facePoints = []
             faceShot = nil
             faceArmed = false
-            hint = "In alto a destra c'è la fotocamera a colori. Al centro i puntini TrueDepth. Gira la testa: devono girare con te."
-            actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
-            armFace()
+            startTrueDepth()
         case "face-retry":
             face.cancel()
             startBiometrics()
@@ -695,7 +690,6 @@ final class DiagModel: ObservableObject {
         powerMark = ""
         muteMark = ""
         muteWord = ""
-        muteSawSound = false
         buttonFinishQueued = false
         buttonBundle = false
         lightLevel = 0
@@ -827,7 +821,6 @@ final class DiagModel: ObservableObject {
         case "autofocus": startAutofocus()
         case "truedepth": startTrueDepth()
         case "lidar": startDepth()
-        case "memory": readMemory()
         case "proximity": watchProximity()
         case "light": startLight()
         case "compass": startCompass()
@@ -1110,16 +1103,13 @@ final class DiagModel: ObservableObject {
     }
 
     private func startGps() {
-        hint = "Cerco il satellite. Se iOS chiede la posizione, consenti e scegli Precisa. La mappa resta aperta finché non confermi."
+        hint = "Se compare la richiesta, consenti la posizione e scegli Precisa. Poi cerco il satellite."
         detail = "In cerca"
         gpsAccuracy = "In cerca"
         gpsLatitude = nil
         gpsLongitude = nil
         bestGps = nil
-        actions = [
-            Act(label: "Apri Posizione", status: "open-location", note: ""),
-            Act(label: "Nessun fix", status: "skip", note: "Nessun fix"),
-        ]
+        actions = []
         place.onFix = { [weak self] location in
             guard let self, self.still("gps"), location.horizontalAccuracy >= 0 else { return }
             if let best = self.bestGps, location.horizontalAccuracy >= best.horizontalAccuracy { return }
@@ -1153,6 +1143,13 @@ final class DiagModel: ObservableObject {
             ]
         }
         place.requestFix()
+        later(1.2) {
+            guard self.still("gps"), self.bestGps == nil, self.actions.isEmpty else { return }
+            self.actions = [
+                Act(label: "Apri Posizione", status: "open-location", note: ""),
+                Act(label: "Nessun fix", status: "skip", note: "Nessun fix"),
+            ]
+        }
         later(20) {
             guard self.still("gps"), self.bestGps == nil else { return }
             self.hint = "Ancora nessun satellite. Una finestra aiuta. Il test resta qui finché non arriva un fix o salti."
@@ -1179,7 +1176,6 @@ final class DiagModel: ObservableObject {
         powerMark = ""
         muteMark = ""
         muteWord = ""
-        muteSawSound = false
         buttonFinishQueued = false
         keyOk = false
         let side = HardwareFit.pad ? "il tasto in alto" : "il tasto laterale"
@@ -1192,8 +1188,8 @@ final class DiagModel: ObservableObject {
         }
         if plan.contains("mute_switch") {
             let mute = HardwareFit.usesActionButton
-                ? "Poi premi il tasto Azione fino a Silenzioso. Con Suono senti un tic."
-                : "Poi sposta l'interruttore fino a Silenzioso. Con Suono senti un tic."
+                ? "Poi premi il tasto Azione e passa da Suono a Silenzioso e ritorno. Premi Conferma se l'hai sentito cambiare."
+                : "Poi sposta l'interruttore da Suono a Silenzioso e ritorno. Premi Conferma se l'hai sentito cambiare."
             parts.append(mute)
         }
         parts.append("Se uno non va, segna Non va solo su quella riga.")
@@ -1202,9 +1198,6 @@ final class DiagModel: ObservableObject {
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         if plan.contains("volume_up") || plan.contains("volume_down") {
             armVolumeWatch(target: 0.5)
-        }
-        if plan.contains("mute_switch") {
-            armMuteWatch()
         }
         if plan.contains("power_button") {
             watch(UIApplication.userDidTakeScreenshotNotification) { [weak self] in
@@ -1424,62 +1417,29 @@ final class DiagModel: ObservableObject {
         ]
     }
 
+    func confirmMute() {
+        guard buttonBundle, !settled, !buttonFinishQueued, muteMark.isEmpty else { return }
+        muteMark = "pass"
+        muteWord = "Confermato"
+        finishButtonsIfReady()
+    }
+
     private func startMute() {
         guard HardwareFit.supports("mute_switch") else {
             settle("mute_switch", "absent", "Questo modello non ha il controllo del silenzioso")
             return
         }
         keyOk = false
-        muteSawSound = false
         let action = HardwareFit.usesActionButton
         hint = action
-            ? "Premi il tasto Azione. Con Suono senti un tic breve. Passa a Silenzioso: il tic sparisce."
-            : "Sposta l'interruttore. Con Suono senti un tic breve. Passa a Silenzioso: il tic sparisce."
-        detail = "In attesa"
+            ? "Premi il tasto Azione e passa da Suono a Silenzioso, poi di nuovo a Suono. Conferma tu il risultato: l'app non legge lo stato del silenzioso."
+            : "Sposta l'interruttore da Suono a Silenzioso, poi di nuovo a Suono. Conferma tu il risultato: l'app non legge lo stato del silenzioso."
+        detail = "Conferma a mano"
         actions = [
-            Act(label: "Non commuta", status: "fail", note: action ? "Il tasto Azione non mette in silenzioso" : "L'interruttore non mette in silenzioso"),
+            Act(label: "Ha commutato", status: "pass", note: action ? "Tasto Azione verificato a mano" : "Interruttore verificato a mano"),
+            Act(label: "Non commuta", status: "fail", note: action ? "Il tasto Azione non cambia il silenzioso" : "L'interruttore non cambia il silenzioso"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
-        armMuteWatch()
-    }
-
-    private func armMuteWatch() {
-        muteToken += 1
-        let token = muteToken
-        muteSawSound = false
-        let ok = ringer.start { [weak self] silent in
-            guard let self, self.muteToken == token, !self.settled else { return }
-            let word = silent ? "Silenzioso" : "Suono"
-            if self.buttonBundle {
-                self.muteWord = word
-                if !silent {
-                    self.muteSawSound = true
-                    return
-                }
-                guard self.muteSawSound, self.muteMark.isEmpty, !self.buttonFinishQueued else {
-                    if !self.muteSawSound, self.muteMark.isEmpty, !self.buttonFinishQueued {
-                        self.hint = "Ora è silenzioso. Passa a Suono e poi di nuovo a Silenzioso: compare la V."
-                    }
-                    return
-                }
-                self.muteMark = "pass"
-                self.finishButtonsIfReady()
-                return
-            }
-            guard self.still("mute_switch"), !self.keyOk else { return }
-            self.detail = word
-            if !silent {
-                self.muteSawSound = true
-                return
-            }
-            guard self.muteSawSound else { return }
-            self.markKey("mute_switch", note: "Passato in silenzioso")
-        }
-        if !ok {
-            hint = buttonBundle
-                ? "Non riesco a leggere il silenzioso. Segna Non va su quella riga, oppure salta."
-                : "Non riesco a leggere il silenzioso. Segna che non commuta, oppure salta."
-        }
     }
 
     private func finishButtonsIfReady() {
@@ -1505,7 +1465,7 @@ final class DiagModel: ObservableObject {
             let muteFail = HardwareFit.usesActionButton
                 ? "Il tasto Azione non mette in silenzioso"
                 : "L'interruttore non mette in silenzioso"
-            storeButton("mute_switch", muteMark, pass: "Passato in silenzioso", fail: muteFail)
+            storeButton("mute_switch", muteMark, pass: "Silenzioso verificato a mano", fail: muteFail)
         }
         actions = []
         cleanup()
@@ -1653,11 +1613,9 @@ final class DiagModel: ObservableObject {
 
     private func startBluetooth() {
         keyOk = false
-        hint = "Controllo il Bluetooth. Resta su questa schermata: si vede se è acceso."
+        hint = "Se compare la richiesta, consenti il Bluetooth. Poi controllo se è acceso."
         detail = "In controllo"
-        actions = [
-            Act(label: "Salta", status: "skip", note: "Bluetooth non verificato"),
-        ]
+        actions = []
         radio.onResult = { [weak self] status, note in
             guard let self, self.still("bluetooth") else { return }
             if status == "pass" {
@@ -1700,7 +1658,7 @@ final class DiagModel: ObservableObject {
             openedLenses = [lensName]
         }
         hint = "Apro la fotocamera. Se compare la richiesta, consenti."
-        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        actions = []
         AVCaptureDevice.requestAccess(for: .video) { granted in
             DispatchQueue.main.async {
                 guard self.still(id) else { return }
@@ -1746,7 +1704,7 @@ final class DiagModel: ObservableObject {
             return
         }
         hint = "Accendo il flash. Se compare la richiesta, consenti. Conferma solo se lo vedi acceso."
-        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        actions = []
         AVCaptureDevice.requestAccess(for: .video) { granted in
             DispatchQueue.main.async {
                 guard self.still("flash") else { return }
@@ -1787,12 +1745,12 @@ final class DiagModel: ObservableObject {
             settle("autofocus", "absent", "Obiettivo a fuoco fisso")
             return
         }
-        hint = "Apro la fotocamera dietro. Inquadra un codice QR."
+        hint = "Apro la fotocamera dietro. Inquadra un codice QR. Se compare la richiesta, consenti."
         qrOnce = false
         qrCaught = false
         qrBox = .zero
         qrText = ""
-        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        actions = []
         AVCaptureDevice.requestAccess(for: .video) { granted in
             DispatchQueue.main.async {
                 guard self.still("autofocus") else { return }
@@ -1841,13 +1799,24 @@ final class DiagModel: ObservableObject {
             settle("truedepth", "absent", "Niente fotocamera TrueDepth")
             return
         }
-        hint = "In alto a destra c'è la fotocamera a colori, come in una videochiamata. Al centro i puntini bianchi sono il volto del sensore TrueDepth. Gira la testa: devono girare con te. L'infrarosso resta in iOS."
-        actions = [
-            Act(label: "I puntini girano", status: "pass", note: "TrueDepth ha seguito la testa. L'immagine a infrarossi resta nel sistema."),
-            Act(label: "Non seguono la testa", status: "fail", note: "TrueDepth presente, la testa non è seguita"),
-            Act(label: "Salta", status: "skip", note: "Non eseguito"),
-        ]
-        armFace()
+        hint = "Se compare la richiesta, consenti la fotocamera. Poi in alto a destra c'è l'anteprima a colori. I puntini sono la mesh del volto: restano in memoria solo durante questa prova."
+        actions = []
+        AVCaptureDevice.requestAccess(for: .video) { granted in
+            DispatchQueue.main.async {
+                guard self.still("truedepth") else { return }
+                guard granted else {
+                    self.holdForPermission(camera: true)
+                    return
+                }
+                self.hint = "In alto a destra c'è l'anteprima a colori. I puntini sono la mesh del volto, letta da ARKit per vedere se TrueDepth segue la testa. Anteprima e puntini restano in memoria solo durante questa prova, poi si cancellano: non finiscono nel file né nella scheda. L'app non riceve l'infrarosso né una mappa di profondità."
+                self.actions = [
+                    Act(label: "I puntini girano", status: "pass", note: "TrueDepth ha seguito la testa."),
+                    Act(label: "Non seguono la testa", status: "fail", note: "TrueDepth presente, la testa non è seguita"),
+                    Act(label: "Salta", status: "skip", note: "Non eseguito"),
+                ]
+                self.armFace()
+            }
+        }
     }
 
     private func armFace() {
@@ -1868,12 +1837,8 @@ final class DiagModel: ObservableObject {
             settle("lidar", "absent", "Questo iPhone non consegna la profondità LiDAR")
             return
         }
-        hint = "Parte grigia e resta aperta. Avvicina la mano: solo le zone vicine diventano più scure. Conferma quando hai visto abbastanza."
-        actions = [
-            Act(label: "Si scurisce", status: "lidar-ok", note: ""),
-            Act(label: "Resta chiara", status: "fail", note: "La profondità non si scurisce"),
-            Act(label: "Salta", status: "skip", note: "Non eseguito"),
-        ]
+        hint = "Se compare la richiesta, consenti la fotocamera. Poi si apre la mappa di profondità."
+        actions = []
         depth.onPicture = { [weak self] image, live, near in
             guard let self, self.still("lidar") else { return }
             self.depthShot = image
@@ -1888,6 +1853,12 @@ final class DiagModel: ObservableObject {
                     self.holdForPermission(camera: true)
                     return
                 }
+                self.hint = "La griglia grigia è la mappa di profondità, solo per vedere se il vicino diventa più scuro. Resta in memoria durante questa prova, poi si cancella. Non è un'immagine a infrarossi e non viene inviata."
+                self.actions = [
+                    Act(label: "Si scurisce", status: "lidar-ok", note: ""),
+                    Act(label: "Resta chiara", status: "fail", note: "La profondità non si scurisce"),
+                    Act(label: "Salta", status: "skip", note: "Non eseguito"),
+                ]
                 self.camera.stop {
                     guard self.still("lidar") else { return }
                     self.depth.start { ok in
@@ -2113,8 +2084,8 @@ final class DiagModel: ObservableObject {
 
     private func recordMic() {
         guard still("microphone") else { return }
-        hint = "Parla per due secondi e mezzo. Poi riascolti la voce."
-        actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
+        hint = "Se compare la richiesta, consenti il microfono. Poi parla per due secondi e mezzo e riascolti la voce."
+        actions = []
         AVAudioApplication.requestRecordPermission { granted in
             DispatchQueue.main.async {
                 guard self.still("microphone") else { return }
@@ -2220,7 +2191,6 @@ final class DiagModel: ObservableObject {
         tone.stop()
         mic.stop()
         motion.stop()
-        ringer.stop()
         place.stop()
         radio.stop()
         depth.stop()
@@ -2243,7 +2213,13 @@ final class DiagModel: ObservableObject {
         volumePrevious = -1
         volumeDidSet = false
         volumeToken += 1
-        muteToken += 1
+        facePoints = []
+        faceShot = nil
+        faceArmed = false
+        depthShot = nil
+        gpsLatitude = nil
+        gpsLongitude = nil
+        bestGps = nil
         releaseProximity()
         for token in observers {
             NotificationCenter.default.removeObserver(token)
