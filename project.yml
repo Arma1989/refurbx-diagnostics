@@ -21,14 +21,11 @@ targets:
         excludes:
           - Info.plist
           - RefurbX.entitlements
-          - RingerNotify.m
-          - RingerNotify.h
-          - RefurbX-Bridging-Header.h
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: eu.refurbx.diagnostics
-        MARKETING_VERSION: "1.0.80"
-        CURRENT_PROJECT_VERSION: "82"
+        MARKETING_VERSION: "1.0.81"
+        CURRENT_PROJECT_VERSION: "83"
         TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_FILE: RefurbX/Info.plist
         CODE_SIGN_ENTITLEMENTS: RefurbX/RefurbX.entitlements
