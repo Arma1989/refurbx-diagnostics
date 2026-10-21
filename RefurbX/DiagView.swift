@@ -43,6 +43,12 @@ struct DiagView: View {
         .onChange(of: scenePhase) { _, phase in
             model.onScenePhase(phase)
         }
+        .alert(model.settingsGuideTitle, isPresented: $model.showSettingsGuide) {
+            Button("Ho attivato, riprova") { model.retryAfterSettingsGuide() }
+            Button("Annulla", role: .cancel) {}
+        } message: {
+            Text(model.settingsGuideMessage)
+        }
         .preferredColorScheme(.light)
     }
 }

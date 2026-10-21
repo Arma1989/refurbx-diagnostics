@@ -74,6 +74,9 @@ final class DiagModel: ObservableObject {
     @Published var muteMark = ""
     @Published var muteWord = ""
     @Published var qrText = ""
+    @Published var showSettingsGuide = false
+    @Published var settingsGuideTitle = ""
+    @Published var settingsGuideMessage = ""
 
     var planCount: Int { max(plan.count, 1) }
     var activeRows: [Catalog.Row] {
@@ -320,9 +323,13 @@ final class DiagModel: ObservableObject {
         case "bt-retry":
             startBluetooth()
         case "open-wifi":
-            openRadio(wifi: true)
+            showRadioGuide(wifi: true)
         case "open-bluetooth":
-            openRadio(wifi: false)
+            showRadioGuide(wifi: false)
+        case "light-settings":
+            settingsGuideTitle = "Luminosità automatica"
+            settingsGuideMessage = "Apri Impostazioni > Accessibilità > Schermo e dimensioni testo > Luminosità automatica e attivala. Poi torna a RefurbX e tocca Ho attivato, riprova. iOS non consente a RefurbX di aprire direttamente questa schermata o leggere lo stato dell'interruttore."
+            showSettingsGuide = true
         case "open-settings":
             if let url = URL(string: UIApplication.openSettingsURLString) {
                 awaitingSettings = true
@@ -386,11 +393,21 @@ final class DiagModel: ObservableObject {
         }
     }
 
-    private func openRadio(wifi: Bool) {
-        hint = wifi
-            ? "Per collegarti a una rete, apri Impostazioni > Wi-Fi. Poi torna in RefurbX e riprova."
-            : "Per attivare il Bluetooth, apri Impostazioni > Bluetooth. Per il permesso di RefurbX usa le impostazioni dell'app."
-        openAppSettings()
+    private func showRadioGuide(wifi: Bool) {
+        settingsGuideTitle = wifi ? "Attivare il Wi-Fi" : "Attivare il Bluetooth"
+        settingsGuideMessage = wifi
+            ? "Apri Impostazioni > Wi-Fi, attiva il Wi-Fi e torna a RefurbX. Poi tocca Riprova. iOS non consente a RefurbX di aprire direttamente la schermata Wi-Fi."
+            : "Apri Impostazioni > Bluetooth, attiva il Bluetooth e torna a RefurbX. Poi tocca Riprova. Se invece hai negato il permesso a RefurbX, usa il pulsante Apri Impostazioni."
+        showSettingsGuide = true
+    }
+
+    func retryAfterSettingsGuide() {
+        switch currentId {
+        case "network": readNetwork()
+        case "bluetooth": startBluetooth()
+        case "light": startLight()
+        default: break
+        }
     }
 
     private func openAppSettings() {
@@ -627,7 +644,10 @@ final class DiagModel: ObservableObject {
         lightMaximum = initial
         hint = "Controllo automatico in 40 secondi. Attiva Luminosità automatica in Impostazioni > Accessibilità > Schermo e dimensioni testo."
         detail = "Copri la zona superiore dello schermo per 15 secondi; poi scopri il sensore e porta il telefono in un ambiente luminoso. Non toccare il cursore luminosità."
-        actions = [Act(label: "Interrompi", status: "skip", note: "Verifica della risposta alla luce interrotta")]
+        actions = [
+            Act(label: "Come attivare Luminosità automatica", status: "light-settings", note: ""),
+            Act(label: "Interrompi", status: "skip", note: "Verifica della risposta alla luce interrotta"),
+        ]
         lightTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
             Task { @MainActor in
                 guard let self, self.still("light"), let started = self.lightStartedAt else {
@@ -936,7 +956,7 @@ final class DiagModel: ObservableObject {
                 self.detail = "Wi-Fi non collegato"
                 self.hint = "Apri il Wi-Fi, accendilo e torna qui: il controllo riparte da solo."
                 self.actions = [
-                    Act(label: "Apri Wi-Fi", status: "open-wifi", note: ""),
+                    Act(label: "Come attivare Wi-Fi", status: "open-wifi", note: ""),
                     Act(label: "Riprova", status: "wifi-retry", note: ""),
                     Act(label: "Salta", status: "skip", note: "Non eseguito"),
                 ]
@@ -1663,7 +1683,7 @@ final class DiagModel: ObservableObject {
                 : "Apri il Bluetooth, accendilo e torna qui: il controllo riparte da solo."
             self.actions = [
                 Act(label: "Riprova", status: "bt-retry", note: ""),
-                Act(label: denied ? "Apri Impostazioni" : "Apri Bluetooth", status: denied ? "open-settings" : "open-bluetooth", note: ""),
+                Act(label: denied ? "Apri Impostazioni" : "Come attivare Bluetooth", status: denied ? "open-settings" : "open-bluetooth", note: ""),
                 Act(label: "Salta", status: "skip", note: "Non eseguito"),
             ]
         }
