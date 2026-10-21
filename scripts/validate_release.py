@@ -18,7 +18,7 @@ privacy = plistlib.loads((root / 'RefurbX/PrivacyInfo.xcprivacy').read_bytes())
 require(any(x['NSPrivacyAccessedAPIType'] == 'NSPrivacyAccessedAPICategoryUserDefaults' and 'CA92.1' in x['NSPrivacyAccessedAPITypeReasons'] for x in privacy['NSPrivacyAccessedAPITypes']), 'Missing UserDefaults reason')
 require(any(x['NSPrivacyAccessedAPIType'] == 'NSPrivacyAccessedAPICategoryDiskSpace' and x['NSPrivacyAccessedAPITypeReasons'] == ['85F4.1'] for x in privacy['NSPrivacyAccessedAPITypes']), 'Missing display-only disk space reason')
 storage = (root / 'RefurbX/StorageInfo.swift').read_text(encoding='utf-8')
-require('.volumeTotalCapacityKey' in storage and '.volumeAvailableCapacityKey' in storage and '.volumeAvailableCapacityForImportantUsageKey' not in storage, 'Storage display must use the volume free-capacity API')
+require('attributesOfFileSystem(forPath: "/")' in storage and '.systemFreeSize' in storage and '.systemSize' in storage, 'Storage display must read shared APFS free space from the root filesystem')
 require(not any(x in storage for x in ['UserDefaults', 'URLSession', 'write(', 'Outcome(', 'settle(']), 'Storage display must not persist, export or grade values')
 for filename in ['DiagModel.swift', 'SheetPDF.swift', 'Catalog.swift']:
     require('StorageSnapshot' not in (root / 'RefurbX' / filename).read_text(encoding='utf-8'), 'Storage info must be isolated from diagnostic reports')
@@ -33,13 +33,13 @@ require(len(ids) == len(set(ids)), 'Duplicate test IDs')
 require('light' in ids, 'Expected the light-response check in the catalog')
 model = (root / 'RefurbX/DiagModel.swift').read_text(encoding='utf-8')
 light = model[model.index('private func startLight()'):model.index('private func enter()')]
-require('Verifica manuale' in light and 'non è una diagnosi' in light, 'Light check must be a clearly labeled operator observation')
-require('UIScreen.main.brightness' not in light and 'SensorKit' not in model and 'AVCapture' not in light, 'Light check must not claim direct sensor access or use camera as a proxy')
+require('requestAccess(for: .video)' in light and 'onMeter:' in light and 'indice relativo' in light, 'Light check must request camera access and report a relative exposure index')
+require('non legge direttamente il sensore ambientale Apple' in light and 'diagnosi hardware' in light and 'UIScreen.main.brightness' not in light and 'SensorKit' not in model, 'Light check must disclose proxy limits and avoid direct sensor claims')
 guide = (root / 'RefurbX/Guide.swift').read_text(encoding='utf-8')
 view = (root / 'RefurbX/DiagView.swift').read_text(encoding='utf-8')
 require('Informativa privacy' in view and 'https://refurbx.eu/privacy-policy' in view, 'Missing in-app privacy policy link')
 permission_ids = guide.split('static func needsSystemPermission', 1)[1].split('static func line', 1)[0]
-for value in ['camera_back', 'camera_front', 'microphone', 'gps', 'compass', 'bluetooth', 'biometrics', 'truedepth', 'lidar']:
+for value in ['camera_back', 'camera_front', 'microphone', 'gps', 'compass', 'bluetooth', 'biometrics', 'truedepth', 'lidar', 'light']:
     require(f'"{value}"' in permission_ids, f'Missing pre-permission guard: {value}')
 require('"nfc"' in permission_ids, 'NFC explanation must lead into the system reader session')
 require('NfcTap' not in guide and 'NfcOpenController' not in (root / 'RefurbX/DiagView.swift').read_text(encoding='utf-8'), 'Remove the extra NFC reader button')
@@ -57,4 +57,4 @@ for path in (root / 'RefurbX/Assets.xcassets').rglob('Contents.json'):
 require('guard outboxEnabled, !outcomes.isEmpty' in model, 'Cable export requires Send consent')
 require('"touchPoints": 5' not in model, 'Do not export an unmeasured touch-point count')
 require('row.note.prefix(140)' not in (root / 'RefurbX/SheetPDF.swift').read_text(encoding='utf-8'), 'Report must preserve complete notes')
-print(f'PASS: release {info["CFBundleShortVersionString"]} ({info["CFBundleVersion"]}), {len(ids)} test definitions, visible privacy link, radio instructions, NFC auto-start from Continue, manual light labeling, assets and Python syntax. Xcode compilation and device testing remain required.')
+print(f'PASS: release {info["CFBundleShortVersionString"]} ({info["CFBundleVersion"]}), {len(ids)} test definitions, visible privacy link, radio instructions, NFC auto-start from Continue, relative camera light meter labeling, shared APFS free-space reading, assets and Python syntax. Xcode compilation and device testing remain required.')
