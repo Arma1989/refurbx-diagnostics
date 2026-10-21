@@ -1,8 +1,9 @@
-# Esito del secondo controllo — RefurbX 1.0.82 (85)
+# Esito del controllo — RefurbX 1.0.82 (86)
 
 ## Controlli passati in questo ambiente Windows
 
-- Preflight del progetto: versioni coerenti, plist leggibili, motivi privacy CA92.1 e 85F4.1, entitlement NFC TAG, riferimenti del vecchio test memoria assenti, luce manuale, risorse immagini presenti, sintassi dei file Python.
+- Preflight del progetto: versioni coerenti, plist leggibili, motivi privacy CA92.1 e 85F4.1, entitlement NFC TAG, avvio NFC dalla pressione di Continua senza pulsante intermedio, riferimenti del vecchio test memoria assenti, verifica automatica della risposta della luminosità dello schermo (senza accesso diretto al sensore), risorse immagini presenti, sintassi dei file Python.
+- Il sorgente espone un link privacy dalla home; URL, contenuto della pagina e corrispondenza con i metadati App Store Connect restano da verificare esternamente.
 - 8 test offline della preparazione firma: tutti passati. Non sono test della firma Apple reale.
 - 83 nomi usati come model.nome nell'interfaccia trovano una dichiarazione nel sorgente del modello. È un controllo dei riferimenti, non un type-check Swift.
 - Icona App Store: 1024×1024, RGB senza canale alfa.
@@ -21,7 +22,7 @@ Schermata spazio totale/disponibile/occupato separata dai test; consenso prima d
 | Generazione progetto Xcode e compilazione Swift | Da eseguire su Codemagic |
 | Archivio App Store, certificati e firma NFC effettiva | Da eseguire con l'account Apple |
 | Installazione e permessi su iPhone/iPad | Da eseguire su dispositivo |
-| Tutte le 35 prove definite nel catalogo | Non eseguite fisicamente |
+| Tutte le prove definite nel catalogo, inclusa la risposta automatica della luminosità | Non eseguite fisicamente |
 | Layout reale e PDF generato da UIKit | Da controllare su dispositivo |
 | Invio al software del banco, via rete e cavo | Da provare con il banco reale |
 | Screenshot, descrizione e App Privacy pubblicati | Da controllare in App Store Connect |

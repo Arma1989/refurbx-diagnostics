@@ -1,4 +1,4 @@
-# RefurbX 1.0.82 (85) — preparazione alla revisione
+# RefurbX 1.0.82 (86) — preparazione alla revisione
 
 Progetto Swift per iPhone e iPad, iOS 17 o successivo. Bundle eu.refurbx.diagnostics. Il progetto Xcode viene generato da project.yml con XcodeGen.
 
@@ -8,12 +8,14 @@ Questa consegna contiene correzioni ai sorgenti. Non è stata compilata con Xcod
 
 - Eliminati funzione readMemory, stato e riferimenti del vecchio test memoria, già assente dal catalogo 1.0.81. Nessuna diagnosi di RAM o integrità dell’archiviazione. La lettura del volume è disponibile soltanto nella nuova schermata informativa Spazio di archiviazione.
 - Pre-schermate dei permessi: assenza di Salta anche per bussola, biometria, movimento e NFC. L'utente mantiene il controllo nella richiesta di sistema e può saltare le prove dopo un rifiuto.
+- NFC: dopo la spiegazione, Continua avvia direttamente la sessione Core NFC e mostra il foglio di scansione di Apple. Rimosso il pulsante intermedio Apri lettore tag; Riprova NFC compare solo se la sessione si chiude prima di una lettura.
 - Il ritorno in primo piano non avvia più richieste GPS dalla fase di spiegazione. Ripristino TrueDepth dopo Impostazioni incluso.
-- Luce: rimossa la misura tramite fotocamera che era descritta come sensore ambientale. Ora è una verifica MANUALE della luminosità automatica. Esiti e note dichiarano la conferma dell'operatore; nessuna diagnosi automatica del sensore.
+- Luce: resta una verifica automatica della risposta della luminosità dello schermo. Per 40 secondi campiona UIScreen.brightness mentre l'operatore copre e scopre la zona superiore con Luminosità automatica attiva. Se rileva una variazione sufficiente registra la risposta osservata; se non la rileva, l'esito è inconclusivo. Non misura lux, non legge direttamente il sensore ambientale e non certifica il componente.
 - Eliminati URL non documentati delle impostazioni; uso di UIApplication.openSettingsURLString. Wi-Fi e Bluetooth si attivano nelle Impostazioni di sistema, come spiegato dal testo.
 - Privacy manifest: dichiarazione UserDefaults, motivo CA92.1 per preferenze dell'app; dichiarato 85F4.1 per mostrare lo spazio del volume nella schermata informativa, separata dai test e dagli export.
+- Aggiunto nella home il collegamento diretto all'informativa privacy. Prima della revisione verifica che https://refurbx.eu/privacy-policy sia raggiungibile, descriva correttamente i dati e le finalità effettivi e coincida con l'URL indicato nei metadati App Store Connect.
 - Esclusi dai risultati ripristinati gli identificativi non più presenti nel catalogo.
-- Versione coerente in Info.plist e project.yml: 1.0.82, build 85.
+- Versione coerente in Info.plist e project.yml: 1.0.82, build 86.
 - Codemagic usa scripts/apply_profile.py leggibile, invece di due copie codificate Base64 identiche. Aggiunto preflight. Tolta la cancellazione automatica dei profili remoti Apple; restano verifica e selezione del profilo NFC TAG.
 
 ## Caricamento su Codemagic
@@ -22,7 +24,7 @@ Questa consegna contiene correzioni ai sorgenti. Non è stata compilata con Xcod
 2. Usa il workflow RefurbX iOS (identificativo ios-testflight). Parte manualmente.
 3. Mantieni l'integrazione App Store Connect chiamata RefurbX e il gruppo di variabili signing con CERTIFICATE_PRIVATE_KEY. Usa i segreti già configurati nel tuo account, senza inserirli nei file.
 4. L'App ID eu.refurbx.diagnostics deve avere NFC Tag Reading e un profilo App Store valido con TAG. Se manca, configura o rigenera il profilo corretto in Apple Developer e ripeti la build. Il workflow non cancella più profili sul tuo account.
-5. Controlla che 85 sia superiore alle build già caricate per questa versione. Se è già stato usato, aggiorna CFBundleVersion in Info.plist e CURRENT_PROJECT_VERSION in project.yml allo stesso numero superiore.
+5. Controlla che 86 sia superiore alle build già caricate per questa versione. Se è già stato usato, aggiorna CFBundleVersion in Info.plist e CURRENT_PROJECT_VERSION in project.yml allo stesso numero superiore.
 6. Avvia la build. Il workflow compila, verifica la firma NFC e carica su App Store Connect; NON invia automaticamente in revisione e NON abilita la distribuzione TestFlight. Per provare su un dispositivo usa il canale di test interno già configurato oppure una build di sviluppo/ad hoc firmata per il dispositivo.
 7. Se la compilazione fallisce, conserva il log completo, soprattutto le righe error:. Non inviare una build precedente per aggirare l'errore.
 
@@ -30,7 +32,7 @@ Questa consegna contiene correzioni ai sorgenti. Non è stata compilata con Xcod
 
 - Installazione pulita: test fotocamera, microfono, GPS, bussola, Bluetooth e Face ID/Touch ID. Sulle pre-schermate non deve comparire Salta. Continua apre il flusso della funzione; iOS mostra la richiesta solo se il relativo consenso non è già stato deciso.
 - Per ogni permesso: prova consenso, rifiuto, ritorno da Impostazioni e interruzione/ripresa dell'app. Il rifiuto non deve produrre una diagnosi di guasto.
-- Prova Luminosità automatica: nessun accesso fotocamera, nessuna barra presentata come lettura del sensore; esito scelto manualmente e note esplicite anche nel PDF.
+- Prova Risposta alla luce su un iPhone reale con Luminosità automatica attiva: copri la zona superiore per 15 secondi, poi scopri e porta il telefono in un ambiente luminoso. Controlla che la misura automatica si aggiorni e che il risultato senza variazione resti inconclusivo. Non è una misura in lux né una diagnosi del sensore.
 - Verifica assenza di Memoria/RAM/diagnosi archiviazione in home, percorso completo, scheda PDF ed esportazioni. Ripeti dopo aggiornamento da una build precedente e ripristino di una sessione.
 - Percorso completo su iPhone, poi iPad se mantieni l'app universale: schermo, audio, fotocamere, tasti, sensori, ricarica, biometria, NFC, scheda PDF e invio al banco. Controlla che prove non supportate risultino assenti e non guaste.
 - Le prove manuali e quelle indirette (es. screenshot per il tasto, stato di carica per la ricarica) verificano comportamenti osservati, non certificano l'integrità dei componenti.
@@ -47,7 +49,7 @@ Questa consegna contiene correzioni ai sorgenti. Non è stata compilata con Xcod
 
 ## Verifiche eseguite in questa consegna
 
-scripts/validate_release.py controlla versioni, plist, motivo UserDefaults, entitlement TAG, riferimenti rimossi, classificazione manuale della luce e risorse immagini. I sorgenti Python sono stati analizzati sintatticamente. Questi controlli non sostituiscono il compilatore Swift, la firma Apple o i test su dispositivo.
+scripts/validate_release.py controlla versioni, plist, motivi privacy, entitlement TAG, riferimenti rimossi, classificazione prudente della prova luce e risorse immagini. I sorgenti Python sono stati analizzati sintatticamente. Questi controlli non sostituiscono il compilatore Swift, la firma Apple o i test su dispositivo.
 
 ## Adattamento al dispositivo
 
@@ -57,14 +59,14 @@ Corretta l'esclusione errata della ricarica Qi su iPhone SE 2020, SE 2022 e 16e:
 
 Riferimenti: https://support.apple.com/en-gb/111882 , https://support.apple.com/en-us/111866 , https://support.apple.com/en-us/122208 .
 
-## Secondo audit: build 85 (sostituisce lo ZIP build 84)
+## Audit della build 85 (sostituito dalla correzione build 86)
 
-- Aggiunta la schermata separata Spazio di archiviazione, nella home: totale del volume, disponibile e occupato calcolato. Usa volumeTotalCapacityKey e volumeAvailableCapacityKey senza mescolare quantità con significati diversi. Non legge RAM o salute del disco; i valori possono differire da Impostazioni. Nessuna persistenza, nessun esito diagnostico, nessun inserimento in PDF, condivisioni o payload del banco. Motivo privacy 85F4.1.
+- Aggiunta la schermata separata Spazio di archiviazione, nella home: totale del volume, disponibile e occupato calcolato. La build 86 usa volumeAvailableCapacityForImportantUsageKey per mostrare la capacità stimata da iOS per risorse importanti. Non legge RAM o salute del disco; i valori possono differire da Impostazioni. Nessuna persistenza, nessun esito diagnostico, nessun inserimento in PDF, condivisioni o payload del banco. Motivo privacy 85F4.1.
 - Il file outbox.json per il banco viene scritto solo dopo Invia al banco. A ogni avvio o nuova sessione viene eliminata la vecchia outbox per evitare trasferimenti involontari o schede obsolete. L'invio volontario via Internet della scheda continua a essere possibile se il banco lo prevede; lo spazio di archiviazione ne è escluso.
 - PDF: note complete, altezza delle righe calcolata sul testo, titoli separati dallo stato. Condivisione testuale senza troncamento arbitrario e con avvertenza.
 - Eliminati dal payload il numero di tocchi fittizio e il campo secureContext dedotto erroneamente dal codice del banco; lingua ricavata dal sistema.
 - Registrazioni microfono eliminate alla chiusura della prova, dopo arresto della riproduzione.
-- Ripresa sessione: conserva il test corrente quando cambia il catalogo; invalida i vecchi esiti automatici della luce. Protezioni contro callback di prove precedenti.
+- Ripresa sessione: conserva il test corrente quando cambia il catalogo; la build 86 invalida gli esiti manuali precedenti della prova luce, che deve essere ripetuta con la nuova misura automatica. Protezioni contro callback di prove precedenti.
 - Richiesta biometrica avviata senza mostrare Salta durante un ritardo preliminare. Biometria non disponibile/non autorizzata non è classificata automaticamente come hardware assente.
 - Cavo e pad: lo stato di carica iOS non distingue la sorgente; l'esito positivo richiede la conferma dell'operatore. Aggiornate le istruzioni.
 - Firma: se l'App ID manca dalla risposta Apple, la build si ferma invece di usare un identificativo account fisso. Confronto esatto del bundle nei profili.
@@ -79,6 +81,6 @@ In Codemagic puoi prima eseguire **RefurbX - verifica compilazione senza firma**
 
 ### Prima di dichiarare il pacchetto pronto
 
-Restano NON verificati: compilazione Xcode dei sorgenti modificati, generazione effettiva del progetto, firma con i tuoi certificati, installazione, permessi e interruzioni su dispositivo, qualità audio/video, layout iPhone/iPad/PDF e comunicazione con il tuo banco. Il preflight non certifica questi aspetti. Non inviare ad Apple finché non sono stati controllati. Se build 85 è già stata usata, scegli un numero superiore nei due file versione.
+Restano NON verificati: compilazione Xcode dei sorgenti modificati, generazione effettiva del progetto, firma con i tuoi certificati, installazione, permessi e interruzioni su dispositivo, risposta della luminosità automatica in condizioni reali, confronto dello spazio disponibile con Impostazioni, qualità audio/video, layout iPhone/iPad/PDF e comunicazione con il tuo banco. Il preflight non certifica questi aspetti. Non inviare ad Apple finché non sono stati controllati. Se build 86 è già stata usata, scegli un numero superiore nei due file versione.
 
 Riferimento Apple per la visualizzazione dello spazio e i vincoli di trasferimento: https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype .
