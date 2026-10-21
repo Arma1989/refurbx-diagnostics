@@ -46,7 +46,7 @@ private enum GuideCopy {
     /// Tests that show a custom screen and then need the system permission prompt.
     static func needsSystemPermission(_ id: String) -> Bool {
         switch id {
-        case "camera_back", "camera_front", "autofocus", "flash", "truedepth", "lidar",
+        case "camera_back", "camera_front", "autofocus", "flash", "truedepth", "lidar", "light",
              "microphone", "gps", "compass", "bluetooth", "biometrics",
              "accelerometer", "gyroscope", "nfc":
             return true
@@ -67,7 +67,7 @@ private enum GuideCopy {
         case "touch": return "Trascina un dito su tutte le celle, anche sui bordi."
         case "multitouch": return "Appoggia due dita insieme, come nell'esempio."
         case "force": return "Premi piano e poi forte nel riquadro. Questo schermo misura la pressione."
-        case "light": return "Verifica manuale: attiva Luminosità automatica nelle impostazioni di iOS. Durante la prova copri la zona superiore, poi scoprila e porta il telefono in un ambiente luminoso. Conferma solo ciò che osservi: RefurbX non legge il sensore ambientale né misura i lux."
+        case "light": return "La fotocamera anteriore è usata solo durante questa prova per mostrare un indice relativo di esposizione. Consenti l'accesso quando iOS lo chiede; i fotogrammi restano sul dispositivo e non vengono salvati o inviati. L'indice non è in lux e non legge direttamente il sensore ambientale."
         case "stylus": return "Scrivi con la Apple Pencil. Il dito non fa passare il test."
         case "speaker": return "Una nota sale dall'altoparlante in basso. Poi confermi a mano se è chiara."
         case "earpiece": return "Avvicina l'orecchio alla capsula in alto, segnata nell'esempio."

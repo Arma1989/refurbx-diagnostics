@@ -19,7 +19,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.0.82</string>
 	<key>CFBundleVersion</key>
-	<string>89</string>
+	<string>90</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
@@ -45,7 +45,7 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>RefurbX apre la fotocamera per l'anteprima del test. I fotogrammi non vengono salvati né inviati. Nel test TrueDepth l'anteprima a colori e i puntini della mesh restano in memoria solo durante la prova.</string>
+	<string>RefurbX usa la fotocamera per le prove visive e per mostrare un indice relativo di esposizione nel test luce. I fotogrammi non vengono salvati né inviati. Nel test TrueDepth l'anteprima a colori e i puntini della mesh restano in memoria solo durante la prova.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>RefurbX registra il microfono solo per farlo riascoltare durante il controllo in negozio. L'audio non viene caricato.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

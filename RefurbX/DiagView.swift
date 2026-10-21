@@ -447,7 +447,7 @@ private struct RunScreen: View {
                 }
         } else if model.showCamera {
             VStack(spacing: 8) {
-                CameraPreview(session: model.camera.session, front: model.currentId == "camera_front") { view in
+                CameraPreview(session: model.camera.session, front: model.currentId == "camera_front" || model.currentId == "light") { view in
                     model.noteCameraPreview(view)
                 }
                     .overlay {
@@ -456,6 +456,16 @@ private struct RunScreen: View {
                         }
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 16))
+                if model.currentId == "light" {
+                    Text("\(model.lightLevel)%")
+                        .font(Look.text(44, .semibold))
+                        .foregroundStyle(Look.title)
+                    LightBar(level: Double(model.lightLevel) / 100)
+                    Text("Indice relativo fotocamera · non sono lux")
+                        .font(.footnote)
+                        .foregroundStyle(Look.ink)
+                        .multilineTextAlignment(.center)
+                }
                 if model.currentId == "camera_back", model.lenses.count > 1 {
                     HStack(spacing: 8) {
                         ForEach(model.lenses, id: \.rawValue) { type in
@@ -1701,7 +1711,7 @@ private struct LightBar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Luce davanti")
+            Text("Indice luce fotocamera")
                 .font(.footnote)
                 .foregroundStyle(Look.ink)
             GeometryReader { geo in

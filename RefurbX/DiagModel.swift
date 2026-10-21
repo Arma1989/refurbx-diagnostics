@@ -58,6 +58,7 @@ final class DiagModel: ObservableObject {
     @Published var faceShot: UIImage?
     @Published var micSpot = ""
     @Published var micLevel = 0
+    @Published var lightLevel = 0
     @Published var audioSpot = ""
     @Published var gpsAccuracy = ""
     @Published var gpsLatitude: Double?
@@ -188,6 +189,7 @@ final class DiagModel: ObservableObject {
     private var micCursor = 0
     private var micLines: [String] = []
     private var micBad = false
+    private var lightMeterInitialized = false
     private var micLabel = "Microfono"
     private var micToken = 0
     private var faceArmed = false
@@ -628,13 +630,49 @@ final class DiagModel: ObservableObject {
     }
 
     private func startLight() {
-        hint = "Verifica manuale: in Impostazioni > Accessibilità > Schermo e dimensioni testo attiva Luminosità automatica. Torna qui, copri la zona superiore dello schermo, poi esponila alla luce e attendi l'adattamento."
-        detail = "Osserva se la luminosità dello schermo cambia. RefurbX non legge il sensore ambientale; questa osservazione non conferma né esclude un guasto hardware."
-        actions = [
-            Act(label: "Variazione osservata", status: "pass", note: "L'operatore ha osservato una variazione della luminosità automatica dello schermo; non è una diagnosi del sensore ambientale"),
-            Act(label: "Nessuna variazione · inconclusivo", status: "skip", note: "L'operatore non ha osservato una variazione; esito inconclusivo, non è una diagnosi del sensore ambientale"),
-            Act(label: "Non verificabile", status: "skip", note: "Luminosità automatica non verificata manualmente"),
-        ]
+        lightLevel = 0
+        lightMeterInitialized = false
+        hint = "La fotocamera anteriore mostra un indice relativo: copri per un momento la zona frontale in alto, poi illuminala e controlla che l'indice cambi."
+        detail = "L'indice deriva dall'esposizione della fotocamera: non misura i lux e non legge direttamente il sensore ambientale Apple."
+        actions = []
+        AVCaptureDevice.requestAccess(for: .video) { granted in
+            DispatchQueue.main.async {
+                guard self.still("light") else { return }
+                guard granted else {
+                    self.holdForPermission(camera: true)
+                    return
+                }
+                self.showCamera = true
+                self.pendingCamera = { [weak self] in
+                    guard let self, self.still("light") else { return }
+                    self.camera.start(front: true, onFocus: {}, onRunning: {
+                        guard self.still("light") else { return }
+                        self.hint = "Copri la parte frontale in alto per qualche secondo, poi illuminala. L'indice dovrebbe scendere e poi salire."
+                        self.detail = "Indice relativo della fotocamera · non sono lux né una diagnosi del sensore ambientale."
+                        self.actions = [
+                            Act(label: "L'indice aumenta con la luce", status: "pass", note: "Variazione dell'esposizione della fotocamera anteriore osservata dall'operatore; non è una misura del sensore ambientale né una diagnosi hardware"),
+                            Act(label: "Nessun cambiamento · inconclusivo", status: "skip", note: "Indice della fotocamera senza variazione osservabile; esito inconclusivo, non diagnostica il sensore ambientale"),
+                            Act(label: "Salta", status: "skip", note: "Prova luce non eseguita"),
+                        ]
+                    }, onError: { message in
+                        guard self.still("light") else { return }
+                        self.showCamera = false
+                        self.detail = message
+                        self.hint = "La fotocamera anteriore non è disponibile per questa prova."
+                        self.actions = [Act(label: "Salta · non verificabile", status: "skip", note: "Fotocamera anteriore non disponibile")]
+                    }, onMeter: { value in
+                        guard self.still("light") else { return }
+                        let measured = CameraSession.lightPercentage(from: value)
+                        if self.lightMeterInitialized {
+                            self.lightLevel = Int((Double(self.lightLevel) * 0.72 + Double(measured) * 0.28).rounded())
+                        } else {
+                            self.lightLevel = measured
+                            self.lightMeterInitialized = true
+                        }
+                    })
+                }
+            }
+        }
     }
 
     private func enter() {

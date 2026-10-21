@@ -860,12 +860,13 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
         AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front) != nil
     }
 
-    func ambientLevel() -> Double? {
-        guard let camera = (session.inputs.first as? AVCaptureDeviceInput)?.device else { return nil }
-        let iso = Double(camera.iso)
-        let seconds = camera.exposureDuration.seconds
-        guard iso > 1, seconds > 0 else { return nil }
-        return 1.0 / (iso * seconds)
+    static func lightPercentage(from exposureIndex: Double) -> Int {
+        guard exposureIndex.isFinite, exposureIndex > 0 else { return 0 }
+        // Relative display index, deliberately not lux: exposureIndex is
+        // derived from camera ISO and shutter duration and varies by device.
+        let stops = log2(exposureIndex)
+        let normalized = (stops + 8.0) / 12.0
+        return Int((min(1, max(0, normalized)) * 100).rounded())
     }
 }
 

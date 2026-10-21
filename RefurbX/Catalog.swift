@@ -28,7 +28,7 @@ enum Catalog {
         Row(id: "touch", group: "Schermo", title: "Touchscreen", weight: 3, critical: true),
         Row(id: "multitouch", group: "Schermo", title: "Multi-touch", weight: 2, critical: false),
         Row(id: "force", group: "Schermo", title: "3D Touch", weight: 1, critical: false),
-        Row(id: "light", group: "Schermo", title: "Risposta alla luce", weight: 1, critical: false),
+        Row(id: "light", group: "Schermo", title: "Indice luce fotocamera", weight: 1, critical: false),
         Row(id: "stylus", group: "Schermo", title: "Penna", weight: 1, critical: false),
         Row(id: "speaker", group: "Audio", title: "Altoparlante", weight: 3, critical: true),
         Row(id: "earpiece", group: "Audio", title: "Capsula auricolare", weight: 2, critical: false),
