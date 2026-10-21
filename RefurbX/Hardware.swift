@@ -1611,11 +1611,11 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
             return
         }
         if code == .readerSessionInvalidationErrorSessionTimeout {
-            finish("closed", "Tempo scaduto. Premi Apri lettore tag e tieni la scheda ferma sul retro, in alto.", token: token)
+            finish("closed", "Tempo scaduto. Premi Riprova NFC e tieni la scheda ferma sul retro, in alto.", token: token)
             return
         }
         if code == .readerSessionInvalidationErrorSystemIsBusy {
-            finish("closed", "NFC occupato. Chiudi le altre finestre e premi Apri lettore tag.", token: token)
+            finish("closed", "NFC occupato. Chiudi le altre finestre e premi Riprova NFC.", token: token)
             return
         }
         let nsError = error as NSError
@@ -1639,7 +1639,7 @@ final class TagProbe: NSObject, NFCTagReaderSessionDelegate {
             finish("closed", note, token: token)
             return
         }
-        finish("closed", raw.isEmpty ? "La finestra NFC si è chiusa. Premi Apri lettore tag." : raw, token: token)
+        finish("closed", raw.isEmpty ? "La finestra NFC si è chiusa. Premi Riprova NFC." : raw, token: token)
     }
 
     private static func kind(_ tag: NFCTag) -> String {

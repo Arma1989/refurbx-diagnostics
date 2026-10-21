@@ -28,6 +28,7 @@ enum Catalog {
         Row(id: "touch", group: "Schermo", title: "Touchscreen", weight: 3, critical: true),
         Row(id: "multitouch", group: "Schermo", title: "Multi-touch", weight: 2, critical: false),
         Row(id: "force", group: "Schermo", title: "3D Touch", weight: 1, critical: false),
+        Row(id: "light", group: "Schermo", title: "Risposta alla luce", weight: 1, critical: false),
         Row(id: "stylus", group: "Schermo", title: "Penna", weight: 1, critical: false),
         Row(id: "speaker", group: "Audio", title: "Altoparlante", weight: 3, critical: true),
         Row(id: "earpiece", group: "Audio", title: "Capsula auricolare", weight: 2, critical: false),
@@ -42,7 +43,6 @@ enum Catalog {
         Row(id: "truedepth", group: "Foto", title: "TrueDepth", weight: 1, critical: false),
         Row(id: "lidar", group: "Sensori", title: "Scanner LiDAR", weight: 1, critical: false),
         Row(id: "proximity", group: "Sensori", title: "Prossimità", weight: 1, critical: false),
-        Row(id: "light", group: "Schermo", title: "Luminosità automatica (manuale)", weight: 1, critical: false),
         Row(id: "accelerometer", group: "Sensori", title: "Accelerometro", weight: 2, critical: false),
         Row(id: "gyroscope", group: "Sensori", title: "Giroscopio", weight: 1, critical: false),
         Row(id: "compass", group: "Sensori", title: "Bussola", weight: 1, critical: false),
@@ -78,7 +78,7 @@ enum Catalog {
     static func homeLine(_ group: String) -> String {
         switch group {
         case "Sistema": return "Modello e Wi-Fi"
-        case "Schermo": return "Colori e touch"
+        case "Schermo": return "Colori, touch e risposta alla luce"
         case "Audio": return "Speaker, microfoni, vibrazione"
         case "Foto": return "Obiettivi e profondità"
         case "Sensori": return "Movimento, bussola, GPS"
@@ -98,6 +98,7 @@ enum Catalog {
         case "touch": return "hand.tap.fill"
         case "multitouch": return "hand.raised.fingers.spread.fill"
         case "force": return "hand.point.up.left.fill"
+        case "light": return "sun.max.fill"
         case "stylus": return "pencil.tip"
         case "speaker": return "speaker.wave.2.fill"
         case "earpiece": return "ear"
@@ -112,7 +113,6 @@ enum Catalog {
         case "truedepth": return "faceid"
         case "lidar": return "cube.transparent"
         case "proximity": return "dot.radiowaves.up.forward"
-        case "light": return "sun.max.fill"
         case "accelerometer": return "move.3d"
         case "gyroscope": return "gyroscope"
         case "compass": return "location.north.line"

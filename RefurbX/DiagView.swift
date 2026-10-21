@@ -120,6 +120,11 @@ private struct IntroScreen: View {
                     }
                     BenchButton(title: "Spazio di archiviazione · informazioni", kind: .secondary) { showStorage = true }
                     RefurbBanner()
+                    Link("Informativa privacy", destination: URL(string: "https://refurbx.eu/privacy-policy")!)
+                        .font(Look.text(14, .medium))
+                        .foregroundStyle(cyan)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 8)
                 }
                 .padding(.bottom, 12)
             }
@@ -345,13 +350,7 @@ private struct RunScreen: View {
             if !model.actions.isEmpty {
                 ActionBar {
                     ForEach(model.actions) { act in
-                        if act.status == "nfc-retry" {
-                            NfcTap(title: act.label, probe: model.tagProbe)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 54)
-                        } else {
-                            BenchButton(title: act.label, kind: buttonKind(act)) { model.onAction(act) }
-                        }
+                        BenchButton(title: act.label, kind: buttonKind(act)) { model.onAction(act) }
                     }
                 }
             }
@@ -382,10 +381,6 @@ private struct RunScreen: View {
             }
         } else if model.currentId == "mute_switch" {
             MuteWord(detail: model.detail, on: model.keyOk)
-        } else if model.currentId == "light" {
-            Text("Verifica manuale\n\nOsserva se lo schermo cambia luminosità coprendo ed esponendo alla luce la zona del sensore.\n\nL'app non misura il sensore ambientale.")
-                .multilineTextAlignment(.center)
-                .padding()
         } else if model.currentId == "gps" {
             GpsBoard(accuracy: model.gpsAccuracy, latitude: model.gpsLatitude, longitude: model.gpsLongitude)
         } else if model.currentId == "multitouch" {
@@ -1128,35 +1123,6 @@ private struct TouchFull: View {
     }
 }
 
-private struct MemoryBoard: View {
-    let total: String
-    let free: String
-    let used: String
-
-    var body: some View {
-        VStack(spacing: 12) {
-            line("Totale", total)
-            line("Libero", free)
-            line("Usato", used)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func line(_ title: String, _ value: String) -> some View {
-        HStack {
-            Text(title).foregroundStyle(Look.ink)
-            Spacer()
-            Text(value.isEmpty ? "—" : value)
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(Look.title)
-        }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 64)
-        .background(Look.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Look.line, lineWidth: 1))
-    }
-}
-
 private struct GpsBoard: View {
     let accuracy: String
     let latitude: Double?
@@ -1733,69 +1699,6 @@ private struct LightBar: View {
             }
             .frame(height: 18)
         }
-    }
-}
-
-final class NfcOpenController: UIViewController {
-    nonisolated(unsafe) private let probe: TagProbe
-    private let button = UIButton(type: .custom)
-
-    init(title: String, probe: TagProbe) {
-        self.probe = probe
-        super.init(nibName: nil, bundle: nil)
-        button.setTitle(title, for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
-        button.setTitleColor(UIColor(red: 0.043, green: 0.059, blue: 0.145, alpha: 1), for: .normal)
-        button.backgroundColor = UIColor(red: 0.48, green: 0.84, blue: 1, alpha: 1)
-        button.layer.cornerRadius = 16
-        button.layer.masksToBounds = true
-        button.accessibilityLabel = title
-        button.isUserInteractionEnabled = true
-        button.addTarget(self, action: #selector(openReader), for: .touchDown)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func loadView() {
-        let root = UIView()
-        root.backgroundColor = .clear
-        root.isUserInteractionEnabled = true
-        button.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(button)
-        NSLayoutConstraint.activate([
-            button.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            button.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            button.topAnchor.constraint(equalTo: root.topAnchor),
-            button.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-        ])
-        view = root
-    }
-
-    func applyTitle(_ title: String) {
-        guard button.currentTitle != title else { return }
-        button.setTitle(title, for: .normal)
-        button.accessibilityLabel = title
-    }
-
-    @objc func openReader() {
-        probe.beginFromTap()
-    }
-}
-
-struct NfcTap: UIViewControllerRepresentable {
-    let title: String
-    let probe: TagProbe
-
-    func makeUIViewController(context: Context) -> NfcOpenController {
-        let controller = NfcOpenController(title: title, probe: probe)
-        controller.loadViewIfNeeded()
-        return controller
-    }
-
-    func updateUIViewController(_ controller: NfcOpenController, context: Context) {
-        controller.applyTitle(title)
     }
 }
 

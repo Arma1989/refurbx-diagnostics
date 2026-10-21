@@ -89,6 +89,10 @@ final class DiagModel: ObservableObject {
     let camera = CameraSession()
 
     private var cableWatch: Timer?
+    private var lightTimer: Timer?
+    private var lightStartedAt: Date?
+    private var lightMinimum: CGFloat = 1
+    private var lightMaximum: CGFloat = 0
     private var outboxEnabled = false
 
     init() {
@@ -233,13 +237,8 @@ final class DiagModel: ObservableObject {
             begin(group: nil)
             return
         }
-        outcomes = saved.items.filter { item in Catalog.rows.contains { $0.id == item.id } }
-            .map { item in
-                if item.id == "light", !item.note.hasPrefix("Verifica manuale:") {
-                    return Outcome(id: item.id, status: "skip", note: "Risultato precedente non applicabile: ripetere la verifica manuale della luminosità automatica")
-                }
-                return Outcome(id: item.id, status: item.status, note: item.note)
-            }
+        outcomes = saved.items.filter { item in item.id != "light" && Catalog.rows.contains { $0.id == item.id } }
+            .map { Outcome(id: $0.id, status: $0.status, note: $0.note) }
         lookGrade = saved.look
         testedAt = saved.tested
         withCable = saved.cable
@@ -340,7 +339,7 @@ final class DiagModel: ObservableObject {
         case "perm-retry":
             launch()
         case "nfc-retry":
-            break
+            tags.beginFromTap()
         case "lidar-ok":
             guard depthLive else {
                 hint = "La mappa non è ancora arrivata. Avvicina un oggetto: deve scurirsi."
@@ -620,6 +619,49 @@ final class DiagModel: ObservableObject {
         enter()
     }
 
+    private func startLight() {
+        lightTimer?.invalidate()
+        let initial = UIScreen.main.brightness
+        lightStartedAt = Date()
+        lightMinimum = initial
+        lightMaximum = initial
+        hint = "Controllo automatico in 40 secondi. Attiva Luminosità automatica in Impostazioni > Accessibilità > Schermo e dimensioni testo."
+        detail = "Copri la zona superiore dello schermo per 15 secondi; poi scopri il sensore e porta il telefono in un ambiente luminoso. Non toccare il cursore luminosità."
+        actions = [Act(label: "Interrompi", status: "skip", note: "Verifica della risposta alla luce interrotta")]
+        lightTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
+            Task { @MainActor in
+                guard let self, self.still("light"), let started = self.lightStartedAt else {
+                    timer.invalidate()
+                    return
+                }
+                let elapsed = Date().timeIntervalSince(started)
+                let value = UIScreen.main.brightness
+                self.lightMinimum = min(self.lightMinimum, value)
+                self.lightMaximum = max(self.lightMaximum, value)
+                let range = self.lightMaximum - self.lightMinimum
+                self.detail = String(format: "Luminosità schermo %.0f%% · variazione osservata %.0f%%. Il valore è dello schermo, non una misura in lux.", value * 100, range * 100)
+                if elapsed < 15 {
+                    self.hint = "Fase 1/2 · Copri con la mano la zona superiore dello schermo."
+                } else if elapsed < 40 {
+                    self.hint = "Fase 2/2 · Scopri la zona superiore e porta il telefono in un ambiente luminoso. Attendi l'adattamento automatico."
+                } else {
+                    timer.invalidate()
+                    self.lightTimer = nil
+                    self.lightStartedAt = nil
+                    if range >= 0.06 {
+                        self.hint = "Variazione automatica della luminosità dello schermo rilevata."
+                        self.detail += " La prova conferma solo una risposta osservata; non certifica il sensore ambientale."
+                        self.actions = [Act(label: "Continua", status: "pass", note: String(format: "Risposta automatica della luminosità dello schermo osservata (variazione %.0f%%); non è una diagnosi del sensore ambientale", range * 100))]
+                    } else {
+                        self.hint = "Nessuna variazione sufficiente rilevata: esito inconclusivo. Verifica Luminosità automatica e riprova in ambienti con luce diversa."
+                        self.detail += " L'app non può concludere che il sensore sia guasto."
+                        self.actions = [Act(label: "Esito inconclusivo", status: "skip", note: "Nessuna variazione automatica sufficiente osservata; non è una diagnosi di guasto del sensore ambientale")]
+                    }
+                }
+            }
+        }
+    }
+
     private func enter() {
         wave += 1
         let row = current
@@ -763,6 +805,7 @@ final class DiagModel: ObservableObject {
                 Act(label: "Salta", status: "skip", note: "Non eseguito"),
             ]
         case "speaker": startSpeaker()
+        case "light": startLight()
         case "microphone": afterCamera { self.recordMic() }
         case "vibration":
             pulseVibration()
@@ -785,7 +828,6 @@ final class DiagModel: ObservableObject {
             ]
         case "camera_back": openCamera(front: false)
         case "camera_front": openCamera(front: true)
-        case "light": startLight()
         case "accelerometer": startAccel()
         case "gyroscope": startGyro()
         case "gps": startGps()
@@ -943,14 +985,15 @@ final class DiagModel: ObservableObject {
     }
 
     private func startNfc() {
-        hint = "Premi Apri lettore tag. Si apre la finestra di Apple dal basso. Tieni la scheda ferma sul retro, in alto."
+        hint = "Lettore NFC Apple in apertura. Tieni la scheda ferma sul retro, in alto."
         detail = "Lettore tag"
         actions = nfcActions()
+        tags.beginFromTap()
     }
 
     private func nfcActions() -> [Act] {
         [
-            Act(label: "Apri lettore tag", status: "nfc-retry", note: ""),
+            Act(label: "Riprova NFC", status: "nfc-retry", note: ""),
             Act(label: "Non legge", status: "fail", note: "NFC non ha letto un tag"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
         ]
@@ -975,8 +1018,8 @@ final class DiagModel: ObservableObject {
             }
             self.phase = "run"
             self.hint = status == "cancel"
-                ? "Lettura chiusa. Premi Apri lettore tag e tieni la scheda ferma sul retro, in alto."
-                : (note.isEmpty ? "La finestra NFC si è chiusa prima del tag. Premi Apri lettore tag." : note)
+                ? "Lettura chiusa. Premi Riprova NFC e tieni la scheda ferma sul retro, in alto."
+                : (note.isEmpty ? "La finestra NFC si è chiusa prima del tag. Premi Riprova NFC." : note)
             self.detail = "Lettore chiuso"
             self.actions = self.nfcActions()
         }
@@ -1851,16 +1894,6 @@ final class DiagModel: ObservableObject {
         }
     }
 
-    private func startLight() {
-        hint = "Verifica manuale: in Impostazioni > Accessibilità > Schermo e dimensioni testo attiva Luminosità automatica. Torna qui, copri il sensore ambientale nella zona superiore dello schermo, poi esponilo alla luce e attendi l'adattamento."
-        detail = "Osserva la luminosità dello schermo. L'app non legge il sensore ambientale: il risultato è una conferma dell'operatore e non identifica un guasto hardware."
-        actions = [
-            Act(label: "Variazione osservata", status: "pass", note: "Verifica manuale: l'operatore ha osservato una variazione della luminosità automatica; sensore non misurato dall'app"),
-            Act(label: "Nessuna variazione osservata", status: "fail", note: "Verifica manuale: l'operatore non ha osservato variazioni; esito da approfondire, non diagnosi di guasto del sensore"),
-            Act(label: "Non verificabile", status: "skip", note: "Luminosità automatica non verificata manualmente"),
-        ]
-    }
-
     private func watchProximity() {
         proximityLit = false
         proximityCovered = false
@@ -2106,6 +2139,9 @@ final class DiagModel: ObservableObject {
     }
 
     private func cleanup(releaseCamera: Bool = true) {
+        lightTimer?.invalidate()
+        lightTimer = nil
+        lightStartedAt = nil
         showCamera = false
         face.cancel()
         faceTrack.stop()

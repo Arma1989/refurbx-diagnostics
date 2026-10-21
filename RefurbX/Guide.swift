@@ -24,14 +24,8 @@ struct GuideScreen: View {
         .padding(.top, 16)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             ActionBar {
-                if model.currentId == "nfc" {
-                    NfcTap(title: "Apri lettore tag", probe: model.tagProbe)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 54)
-                } else {
-                    BenchButton(title: GuideCopy.needsSystemPermission(model.currentId) ? "Continua" : "Inizia") {
-                        model.beginCurrent()
-                    }
+                BenchButton(title: GuideCopy.needsSystemPermission(model.currentId) ? "Continua" : "Inizia") {
+                    model.beginCurrent()
                 }
                 // After the explanation, permission tests must open the system dialog.
                 // Salta here would skip that dialog (guideline 5.1.1(iv)).
@@ -73,6 +67,7 @@ private enum GuideCopy {
         case "touch": return "Trascina un dito su tutte le celle, anche sui bordi."
         case "multitouch": return "Appoggia due dita insieme, come nell'esempio."
         case "force": return "Premi piano e poi forte nel riquadro. Questo schermo misura la pressione."
+        case "light": return "Verifica automatica della risposta della luminosità: attiva Luminosità automatica nelle impostazioni di iOS. Durante la prova copri la zona superiore, poi scopri il sensore e porta il telefono in un ambiente luminoso. L'app osserva solo la variazione della luminosità dello schermo; non legge il sensore né misura i lux."
         case "stylus": return "Scrivi con la Apple Pencil. Il dito non fa passare il test."
         case "speaker": return "Una nota sale dall'altoparlante in basso. Poi confermi a mano se è chiara."
         case "earpiece": return "Avvicina l'orecchio alla capsula in alto, segnata nell'esempio."
@@ -87,13 +82,12 @@ private enum GuideCopy {
         case "truedepth": return "In alto a destra vedi l'anteprima a colori. I puntini sono la mesh del volto: girano con la testa. Restano in memoria solo in questa prova e non vengono inviati. L'infrarosso non arriva all'app."
         case "lidar": return "Si apre la mappa di profondità, in grigio. Avvicina la mano: solo il vicino diventa più scuro. Non è un'immagine a infrarossi e non viene inviata."
         case "proximity": return "Copri il sensore in alto, vicino alla capsula."
-        case "light": return "Verifica manuale della luminosità automatica: attivala in Impostazioni > Accessibilità > Schermo e dimensioni testo. Copri la zona superiore dello schermo, poi esponila alla luce e osserva la variazione. L’app non legge il sensore ambientale."
         case "accelerometer": return "Inclina il telefono verso i quattro bordi, come la pallina."
         case "gyroscope": return "Tienilo fermo, poi inclinalo di lato, avanti e giralo. I tre assi devono muoversi."
         case "compass": return "Tienilo in piano e fai un giro completo. Si accendono 8 punti. Finché manca un punto, il test non va avanti."
         case "gps": return "Consente la posizione precisa. Si apre una mappa con il punto reale: confermi tu quando è quello giusto."
         case "bluetooth": return "Resta sulla schermata. Si vede se il Bluetooth è acceso. Se è spento, accendilo e riprova."
-        case "nfc": return "Premi Apri lettore tag. Si apre la finestra di Apple: tieni la scheda ferma sul retro, in alto."
+        case "nfc": return "Premi Continua: si apre automaticamente il lettore NFC di Apple. Tieni la scheda ferma sul retro, in alto, finché il tag viene letto."
         case "cellular": return "Controllo se la radio è agganciata a una cella. Se compare 4G o 5G, il telefono prende il segnale. Il Wi-Fi acceso non conta."
         case "volume_up": return "Premi volume più. Compare una spunta appena il tasto risponde."
         case "volume_down": return "Premi volume meno. Compare una spunta appena il tasto risponde."
@@ -232,6 +226,8 @@ private struct DemoScene: View {
             switch testId {
             case "display":
                 colorWash
+            case "light":
+                lightDemo
             case "touch":
                 touchGrid
             case "multitouch":
@@ -248,9 +244,6 @@ private struct DemoScene: View {
                 qrTarget
             case "camera_front", "biometrics":
                 frontFace
-            case "light":
-                Text("Verifica manuale\nOsserva la luminosità dello schermo")
-                    .multilineTextAlignment(.center)
             case "truedepth":
                 faceDots
             case "lidar":
@@ -295,6 +288,18 @@ private struct DemoScene: View {
         let colors: [Color] = [.white, .black, .red, .green, .blue, .yellow, Color(white: 0.5)]
         let index = min(colors.count - 1, Int(loop * Double(colors.count)))
         return colors[index]
+    }
+
+    private var lightDemo: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "sun.max.fill")
+                .font(.system(size: 52))
+                .foregroundStyle(cyan)
+            Text("Coprire · scoprire · attendere")
+                .font(Look.text(17, .semibold))
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var touchGrid: some View {
