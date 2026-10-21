@@ -24,8 +24,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: eu.refurbx.diagnostics
-        MARKETING_VERSION: "1.0.81"
-        CURRENT_PROJECT_VERSION: "83"
+        MARKETING_VERSION: "1.0.82"
+        CURRENT_PROJECT_VERSION: "85"
         TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_FILE: RefurbX/Info.plist
         CODE_SIGN_ENTITLEMENTS: RefurbX/RefurbX.entitlements

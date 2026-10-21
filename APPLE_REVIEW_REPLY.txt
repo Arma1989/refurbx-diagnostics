@@ -1,0 +1,23 @@
+Draft — send only after building and checking the submitted binary and App Store metadata.
+
+Hello App Review Team,
+
+Thank you for the detailed feedback regarding submission 133894b8-df2a-4885-9f1d-b74f6347c8cb, version 1.0.80 (82).
+
+We have revised the project for version 1.0.82 (85) as follows:
+
+Guideline 1.1.6:
+- The app does not offer a device memory diagnostic. The old diagnostic implementation and memory-test state have been removed. A separate informational screen now displays volume capacity and available space returned by public Foundation APIs (volumeTotalCapacityKey and volumeAvailableCapacityKey); occupied space is their calculated difference. It does not test RAM or storage hardware integrity, has no pass/fail result and is excluded from diagnostic reports and shop exports. These display-only values are not persisted or sent off-device. The privacy manifest declares disk-space reason 85F4.1. The screen explains that volume figures may differ from Settings and nominal device capacity.
+- The former light test based on camera input has been replaced with an explicitly labelled manual Auto-Brightness observation. The app does not read the ambient light sensor or claim to diagnose its hardware integrity. The operator selects the outcome; the report describes this limitation.
+
+Guideline 5.1.1(iv):
+- The custom explanations preceding permission-related features do not include a Skip button. Continue starts the relevant feature and its system authorization flow when authorization has not already been determined.
+- Users can decline the system permission. Camera, microphone and location denial are handled without reporting the missing permission as a hardware defect, and the user can skip the unavailable test.
+- Links for changing app permissions now use Apple's public app-settings URL.
+- Preparing the cable outbox requires the user to select Send to workstation. Previous outboxes are removed when starting the app or a new session.
+
+The app provides guided functional checks using supported APIs and explicitly identified operator observations. It does not certify complete hardware integrity. No account is required for the on-device checks. Sending the report to a shop workstation is optional.
+
+For TrueDepth, ARKit face mesh and the camera preview are used temporarily during the test. The app does not access Face ID biometric templates or an infrared image, and the preview and mesh are not included in the exported report.
+
+Thank you for reviewing the updated submission.
