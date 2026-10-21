@@ -4,11 +4,11 @@ Hello App Review Team,
 
 Thank you for the detailed feedback regarding submission 133894b8-df2a-4885-9f1d-b74f6347c8cb, version 1.0.80 (82).
 
-We have revised the project for version 1.0.82 (89) as follows:
+We have revised the project for version 1.0.82 (90) as follows:
 
 Guideline 1.1.6:
 - The app does not offer a device memory diagnostic. The old diagnostic implementation and memory-test state have been removed. A separate informational screen displays total and available volume capacity returned by public Foundation APIs; occupied space is estimated. It does not test RAM or storage hardware integrity, has no pass/fail result and is excluded from diagnostic reports and shop exports. These display-only values are not persisted or sent off-device. The privacy manifest declares disk-space reason 85F4.1.
-- The light check is an operator-observed check of whether the screen brightness changes while Auto-Brightness is enabled and the upper screen is covered and uncovered. RefurbX does not read the ambient-light sensor or measure lux. The result is clearly identified as an observation, not a sensor diagnosis; no observed change is inconclusive.
+- The light check shows a relative 0–100 index derived from front-camera exposure while the user covers and illuminates the front upper area. The app explains that this is a camera-based exposure indicator, not lux and not direct access to the ambient-light sensor. Frames are processed in memory, not saved or sent. The operator confirms only an observed change; no change is inconclusive, not a hardware diagnosis.
 - The NFC explanation screen has a Continue button without a Skip option. Tapping Continue starts the Core NFC reader session directly, which displays Apple's system scanning sheet. A separate retry button is available only if the session ends before a tag is read.
 - The public privacy-policy link is visible on the app's home screen before starting tests.
 

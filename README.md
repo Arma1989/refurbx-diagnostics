@@ -1,4 +1,4 @@
-# RefurbX 1.0.82 (89) — preparazione alla revisione
+# RefurbX 1.0.82 (90) — preparazione alla revisione
 
 Progetto Swift per iPhone e iPad, iOS 17 o successivo. Bundle eu.refurbx.diagnostics. Il progetto Xcode viene generato da project.yml con XcodeGen.
 
@@ -10,12 +10,12 @@ Questa consegna contiene correzioni ai sorgenti. Non è stata compilata con Xcod
 - Pre-schermate dei permessi: assenza di Salta anche per bussola, biometria, movimento e NFC. L'utente mantiene il controllo nella richiesta di sistema e può saltare le prove dopo un rifiuto.
 - NFC: dopo la spiegazione, Continua avvia direttamente la sessione Core NFC e mostra il foglio di scansione di Apple. Rimosso il pulsante intermedio Apri lettore tag; Riprova NFC compare solo se la sessione si chiude prima di una lettura.
 - Il ritorno in primo piano non avvia più richieste GPS dalla fase di spiegazione. Ripristino TrueDepth dopo Impostazioni incluso.
-- Luce: verifica manuale della risposta visibile della luminosità schermo, come nella versione precedente preferita dall'utente. RefurbX non legge il sensore ambientale; nessuna variazione è registrata come inconclusiva, non come guasto.
+- Luce: ripristinato l’indice percentuale relativo ricavato dall’esposizione della fotocamera anteriore, con richiesta permesso avviata direttamente dalla prova. L’app dichiara che non è una lettura del sensore ambientale né una misura in lux; nessuna variazione è inconclusiva, non un guasto.
 - Eliminati URL non documentati delle impostazioni. Per Wi-Fi non collegato e Bluetooth spento, la build 89 mostra un popup con le istruzioni e i pulsanti Riprova e Salta; iOS non consente il deep link alle impostazioni generali delle radio. Per un permesso Bluetooth negato si apre solo la pagina impostazioni specifica di RefurbX.
 - Privacy manifest: dichiarazione UserDefaults, motivo CA92.1 per preferenze dell'app; dichiarato 85F4.1 per mostrare lo spazio del volume nella schermata informativa, separata dai test e dagli export.
 - Aggiunto nella home il collegamento diretto all'informativa privacy. Prima della revisione verifica che https://refurbx.eu/privacy-policy sia raggiungibile, descriva correttamente i dati e le finalità effettivi e coincida con l'URL indicato nei metadati App Store Connect.
 - Esclusi dai risultati ripristinati gli identificativi non più presenti nel catalogo.
-- Versione coerente in Info.plist e project.yml: 1.0.82, build 89. La schermata iniziale mostra anche versione e build installate.
+- Versione coerente in Info.plist e project.yml: 1.0.82, build 90. La schermata iniziale mostra anche versione e build installate.
 - Codemagic usa scripts/apply_profile.py leggibile, invece di due copie codificate Base64 identiche. Aggiunto preflight. Tolta la cancellazione automatica dei profili remoti Apple; restano verifica e selezione del profilo NFC TAG.
 
 ## Caricamento su Codemagic
@@ -24,18 +24,18 @@ Questa consegna contiene correzioni ai sorgenti. Non è stata compilata con Xcod
 2. Usa il workflow RefurbX iOS (identificativo ios-testflight). Parte manualmente.
 3. Mantieni l'integrazione App Store Connect chiamata RefurbX e il gruppo di variabili signing con CERTIFICATE_PRIVATE_KEY. Usa i segreti già configurati nel tuo account, senza inserirli nei file.
 4. L'App ID eu.refurbx.diagnostics deve avere NFC Tag Reading e un profilo App Store valido con TAG. Se manca, configura o rigenera il profilo corretto in Apple Developer e ripeti la build. Il workflow non cancella più profili sul tuo account.
-5. Controlla in TestFlight che la build elaborata sia 1.0.82 (89). La schermata iniziale dell'app mostra la stessa versione e build.
+5. Controlla in TestFlight che la build elaborata sia 1.0.82 (90). La schermata iniziale dell'app mostra la stessa versione e build.
 6. Avvia la build. Il workflow compila, verifica la firma NFC e carica su App Store Connect; NON invia automaticamente in revisione e NON abilita la distribuzione TestFlight. Per provare su un dispositivo usa il canale di test interno già configurato oppure una build di sviluppo/ad hoc firmata per il dispositivo.
 7. Se la compilazione fallisce, conserva il log completo, soprattutto le righe error:. Non inviare una build precedente per aggirare l'errore.
 
 ## Prove obbligatorie prima dell'invio
 
-- Installazione pulita: test fotocamera, microfono, GPS, bussola, Bluetooth e Face ID/Touch ID. Sulle pre-schermate non deve comparire Salta. Continua apre il flusso della funzione; iOS mostra la richiesta solo se il relativo consenso non è già stato deciso.
+- Installazione pulita: test fotocamera, indice luce, microfono, GPS, bussola, Bluetooth e Face ID/Touch ID. Sulle pre-schermate non deve comparire Salta. Continua apre il flusso della funzione; iOS mostra la richiesta solo se il relativo consenso non è già stato deciso.
 - Per ogni permesso: prova consenso, rifiuto, ritorno da Impostazioni e interruzione/ripresa dell'app. Il rifiuto non deve produrre una diagnosi di guasto.
-- Prova Risposta alla luce su un iPhone reale con Luminosità automatica attiva: copri la zona superiore, poi scopri e porta il telefono in un ambiente luminoso. Conferma solo ciò che osservi; nessuna variazione va registrata come inconclusiva. Non è una misura in lux né una diagnosi del sensore.
+- Prova Indice luce fotocamera su un iPhone reale: consenti la fotocamera, copri per alcuni secondi la parte frontale in alto, poi illuminala. Verifica che la percentuale scenda e poi salga. È un indice relativo dell’esposizione della fotocamera, non misura i lux e non legge direttamente il sensore ambientale; senza variazione, seleziona inconclusivo.
 - Con Wi-Fi spento/non collegato e Bluetooth spento verifica che il popup mostri Riprova e Salta e che non apra erroneamente le impostazioni di RefurbX. Con Bluetooth negato, verifica invece l'accesso alle impostazioni specifiche dell'app.
 - Dal test NFC tocca Continua una sola volta e verifica che si apra direttamente la scheda di scansione di Apple, senza il pulsante Apri lettore tag.
-- Sulla home verifica che Informativa privacy e Versione 1.0.82 (build 89) siano visibili senza scorrere.
+- Sulla home verifica che Informativa privacy e Versione 1.0.82 (build 90) siano visibili senza scorrere.
 - Verifica assenza di Memoria/RAM/diagnosi archiviazione in home, percorso completo, scheda PDF ed esportazioni. Ripeti dopo aggiornamento da una build precedente e ripristino di una sessione.
 - Percorso completo su iPhone, poi iPad se mantieni l'app universale: schermo, audio, fotocamere, tasti, sensori, ricarica, biometria, NFC, scheda PDF e invio al banco. Controlla che prove non supportate risultino assenti e non guaste.
 - Le prove manuali e quelle indirette (es. screenshot per il tasto, stato di carica per la ricarica) verificano comportamenti osservati, non certificano l'integrità dei componenti.
@@ -64,15 +64,15 @@ Riferimenti: https://support.apple.com/en-gb/111882 , https://support.apple.com/
 
 ## Correzioni delle build 86–89
 
-- Aggiunta la schermata separata Spazio di archiviazione, nella home: totale del volume, libero e occupato stimato. La build 88 usa volumeAvailableCapacityKey per mostrare lo spazio libero del volume; sostituisce la capacità per risorse importanti usata nella build 87, che sul dispositivo dell'utente risultava molto inferiore a Impostazioni. Non legge RAM o salute del disco. Nessuna persistenza, nessun esito diagnostico, nessun inserimento in PDF, condivisioni o payload del banco. Motivo privacy 85F4.1.
+- Aggiunta la schermata separata Spazio di archiviazione, nella home: totale del file system, disponibile e occupato stimato. La build 90 usa FileManager.attributesOfFileSystem("/") con systemFreeSize per includere lo spazio libero condiviso di APFS, seguendo la documentazione Apple. Non legge RAM o salute del disco. Nessuna persistenza, nessun esito diagnostico, nessun inserimento in PDF, condivisioni o payload del banco. Motivo privacy 85F4.1.
 - La build 89 mostra popup automatici per Wi-Fi non collegato e Bluetooth spento, con istruzioni, Riprova e Salta. iOS non consente di aprire direttamente le impostazioni generali delle radio. Il pulsante per un permesso Bluetooth negato apre le impostazioni specifiche di RefurbX.
-- La prova luce è tornata alla conferma manuale preferita dall'operatore, con esito inconclusivo quando non si osserva una variazione; non legge il sensore ambientale e non diagnostica un guasto.
+- La prova luce della build 90 usa la fotocamera anteriore per produrre un indice relativo 0–100 dall’esposizione (non lux e non accesso al sensore Apple). Se il valore non cambia, l’esito resta inconclusivo.
 - Il collegamento all'informativa privacy e il numero di versione/build sono visibili nella schermata iniziale.
 - Il file outbox.json per il banco viene scritto solo dopo Invia al banco. A ogni avvio o nuova sessione viene eliminata la vecchia outbox per evitare trasferimenti involontari o schede obsolete. L'invio volontario via Internet della scheda continua a essere possibile se il banco lo prevede; lo spazio di archiviazione ne è escluso.
 - PDF: note complete, altezza delle righe calcolata sul testo, titoli separati dallo stato. Condivisione testuale senza troncamento arbitrario e con avvertenza.
 - Eliminati dal payload il numero di tocchi fittizio e il campo secureContext dedotto erroneamente dal codice del banco; lingua ricavata dal sistema.
 - Registrazioni microfono eliminate alla chiusura della prova, dopo arresto della riproduzione.
-- Ripresa sessione: conserva il test corrente quando cambia il catalogo; gli esiti luce precedenti sono invalidati e richiedono una nuova conferma manuale. Protezioni contro callback di prove precedenti.
+- Ripresa sessione: conserva il test corrente quando cambia il catalogo; gli esiti luce precedenti sono invalidati e richiedono una nuova misura con la fotocamera. Protezioni contro callback di prove precedenti.
 - Richiesta biometrica avviata senza mostrare Salta durante un ritardo preliminare. Biometria non disponibile/non autorizzata non è classificata automaticamente come hardware assente.
 - Cavo e pad: lo stato di carica iOS non distingue la sorgente; l'esito positivo richiede la conferma dell'operatore. Aggiornate le istruzioni.
 - Firma: se l'App ID manca dalla risposta Apple, la build si ferma invece di usare un identificativo account fisso. Confronto esatto del bundle nei profili.
@@ -87,6 +87,6 @@ In Codemagic puoi prima eseguire **RefurbX - verifica compilazione senza firma**
 
 ### Prima di dichiarare il pacchetto pronto
 
-Restano NON verificati: compilazione Xcode dei sorgenti modificati, generazione effettiva del progetto, firma con i tuoi certificati, installazione, permessi e interruzioni su dispositivo, confronto dello spazio disponibile con Impostazioni, qualità audio/video, layout iPhone/iPad/PDF e comunicazione con il tuo banco. Il preflight non certifica questi aspetti. Non inviare ad Apple finché non sono stati controllati. La build successiva a 89 deve avere un numero superiore nei due file versione.
+Restano NON verificati: compilazione Xcode dei sorgenti modificati, generazione effettiva del progetto, firma con i tuoi certificati, installazione, permessi e interruzioni su dispositivo, confronto dello spazio disponibile con Impostazioni, qualità audio/video, layout iPhone/iPad/PDF e comunicazione con il tuo banco. Il preflight non certifica questi aspetti. Non inviare ad Apple finché non sono stati controllati. La build 90 deve essere verificata in Codemagic e su dispositivo prima dell’invio.
 
 Riferimento Apple per la visualizzazione dello spazio e i vincoli di trasferimento: https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype .

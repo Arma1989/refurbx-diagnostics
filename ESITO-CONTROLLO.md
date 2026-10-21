@@ -1,8 +1,8 @@
-# Esito del controllo — RefurbX 1.0.82 (86)
+# Esito del controllo — RefurbX 1.0.82 (90)
 
 ## Controlli passati in questo ambiente Windows
 
-- Preflight del progetto: versioni coerenti, plist leggibili, motivi privacy CA92.1 e 85F4.1, entitlement NFC TAG, avvio NFC dalla pressione di Continua senza pulsante intermedio, riferimenti del vecchio test memoria assenti, verifica automatica della risposta della luminosità dello schermo (senza accesso diretto al sensore), risorse immagini presenti, sintassi dei file Python.
+- Preflight del progetto: versioni coerenti, plist leggibili, motivi privacy CA92.1 e 85F4.1, entitlement NFC TAG, avvio NFC dalla pressione di Continua senza pulsante intermedio, riferimenti del vecchio test memoria assenti, indice relativo di esposizione fotocamera per la prova luce (senza accesso diretto al sensore), lettura spazio libero condiviso APFS, risorse immagini presenti, sintassi dei file Python.
 - Il sorgente espone un link privacy dalla home; URL, contenuto della pagina e corrispondenza con i metadati App Store Connect restano da verificare esternamente.
 - 8 test offline della preparazione firma: tutti passati. Non sono test della firma Apple reale.
 - 83 nomi usati come model.nome nell'interfaccia trovano una dichiarazione nel sorgente del modello. È un controllo dei riferimenti, non un type-check Swift.
