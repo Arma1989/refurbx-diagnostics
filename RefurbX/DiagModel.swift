@@ -59,9 +59,6 @@ final class DiagModel: ObservableObject {
     @Published var micSpot = ""
     @Published var micLevel = 0
     @Published var audioSpot = ""
-    @Published var memoryTotal = ""
-    @Published var memoryFree = ""
-    @Published var memoryUsed = ""
     @Published var gpsAccuracy = ""
     @Published var gpsLatitude: Double?
     @Published var gpsLongitude: Double?
@@ -77,7 +74,6 @@ final class DiagModel: ObservableObject {
     @Published var muteMark = ""
     @Published var muteWord = ""
     @Published var qrText = ""
-    @Published var lightLevel: Double = 0
 
     var planCount: Int { max(plan.count, 1) }
     var activeRows: [Catalog.Row] {
@@ -93,8 +89,10 @@ final class DiagModel: ObservableObject {
     let camera = CameraSession()
 
     private var cableWatch: Timer?
+    private var outboxEnabled = false
 
     init() {
+        clearOutbox()
         adoptCableLink()
         canResume = Self.loadRun() != nil
         startCableWatch()
@@ -131,11 +129,23 @@ final class DiagModel: ObservableObject {
         }
     }
 
-    private func flushOutbox() {
-        guard !outcomes.isEmpty else { return }
+    private func clearOutbox() {
+        outboxEnabled = false
         guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
-        guard let data = try? JSONSerialization.data(withJSONObject: benchPayload()) else { return }
-        try? data.write(to: docs.appendingPathComponent("outbox.json"), options: .atomic)
+        try? FileManager.default.removeItem(at: docs.appendingPathComponent("outbox.json"))
+    }
+
+    @discardableResult
+    private func flushOutbox() -> Bool {
+        guard outboxEnabled, !outcomes.isEmpty else { return false }
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return false }
+        guard let data = try? JSONSerialization.data(withJSONObject: benchPayload()) else { return false }
+        do {
+            try data.write(to: docs.appendingPathComponent("outbox.json"), options: .atomic)
+            return true
+        } catch {
+            return false
+        }
     }
     private let tone = TonePlayer()
     private let mic = MicProbe()
@@ -167,13 +177,6 @@ final class DiagModel: ObservableObject {
     private var pendingCamera: (() -> Void)?
     private var buttonFinishQueued = false
     private static let buttonIds: Set<String> = ["volume_up", "volume_down", "power_button", "mute_switch"]
-    private var lightWarm = 0
-    private var lightFloor = 0.0
-    private var lightCeil = 0.0
-    private var lightBase = 0.0
-    private var lightPeak = 0.0
-    private var lightFrames = 0
-    private var lightUsesFrames = false
     private var playback: AVAudioPlayer?
     private var observers: [NSObjectProtocol] = []
     private var proximityCovered = false
@@ -202,6 +205,7 @@ final class DiagModel: ObservableObject {
         let allowed = Set(ids)
         let chosen = Catalog.rows.filter { allowed.contains($0.id) && HardwareFit.supports($0.id) }
         guard !chosen.isEmpty else { return }
+        clearOutbox()
         UIDevice.current.isBatteryMonitoringEnabled = true
         plan = chosen.map(\.id)
         outcomes = []
@@ -229,12 +233,21 @@ final class DiagModel: ObservableObject {
             begin(group: nil)
             return
         }
-        outcomes = saved.items.map { Outcome(id: $0.id, status: $0.status, note: $0.note) }
+        outcomes = saved.items.filter { item in Catalog.rows.contains { $0.id == item.id } }
+            .map { item in
+                if item.id == "light", !item.note.hasPrefix("Verifica manuale:") {
+                    return Outcome(id: item.id, status: "skip", note: "Risultato precedente non applicabile: ripetere la verifica manuale della luminosità automatica")
+                }
+                return Outcome(id: item.id, status: item.status, note: item.note)
+            }
         lookGrade = saved.look
         testedAt = saved.tested
         withCable = saved.cable
         withBox = saved.box
-        index = min(max(0, saved.index), max(0, plan.count - 1))
+        let savedCurrent = raw.indices.contains(saved.index) ? raw[saved.index] : nil
+        index = savedCurrent.flatMap { plan.firstIndex(of: $0) }
+            ?? plan.firstIndex(where: { id in !outcomes.contains { $0.id == id } })
+            ?? max(0, plan.count - 1)
         if saved.phase == "report" {
             cleanup()
             phase = "report"
@@ -246,6 +259,8 @@ final class DiagModel: ObservableObject {
     }
 
     func restart() {
+        wave += 1
+        clearOutbox()
         cleanup()
         Self.clearRun()
         canResume = false
@@ -315,13 +330,13 @@ final class DiagModel: ObservableObject {
                 UIApplication.shared.open(url)
             }
         case "open-biometry":
-            openPane(["settings-navigation://com.apple.Settings.Passcode"])
+            openAppSettings()
         case "open-location":
-            openPane(["settings-navigation://com.apple.Settings.PrivacyAndSecurity/LOCATION"])
+            openAppSettings()
         case "open-camera":
-            openPane(["settings-navigation://com.apple.Settings.PrivacyAndSecurity/CAMERA"])
+            openAppSettings()
         case "open-mic":
-            openPane(["settings-navigation://com.apple.Settings.PrivacyAndSecurity/MICROPHONE"])
+            openAppSettings()
         case "perm-retry":
             launch()
         case "nfc-retry":
@@ -346,16 +361,16 @@ final class DiagModel: ObservableObject {
     }
 
     func onScenePhase(_ phase: ScenePhase) {
-        guard phase == .active, !settled else { return }
+        guard phase == .active, self.phase == "run", !settled else { return }
         let resume = awaitingSettings
         awaitingSettings = false
-        if currentId == "gps" {
-            place.requestFix()
-        }
         if resume {
             switch currentId {
-            case "biometrics", "camera_back", "camera_front", "flash", "autofocus", "lidar", "microphone":
+            case "biometrics", "camera_back", "camera_front", "flash", "autofocus", "truedepth", "lidar", "microphone":
                 launch()
+                return
+            case "gps":
+                place.requestFix()
                 return
             case "compass":
                 place.startHeading()
@@ -373,20 +388,16 @@ final class DiagModel: ObservableObject {
     }
 
     private func openRadio(wifi: Bool) {
-        let pane = wifi ? "WiFi" : "Bluetooth"
-        let legacy = wifi ? "WIFI" : "Bluetooth"
-        awaitingSettings = true
-        openRadioCandidates([
-            "settings-navigation://com.apple.Settings.\(pane)",
-            "App-Prefs:root=\(legacy)",
-            "App-prefs:root=\(legacy)",
-            "prefs:root=\(legacy)",
-        ], index: 0)
+        hint = wifi
+            ? "Per collegarti a una rete, apri Impostazioni > Wi-Fi. Poi torna in RefurbX e riprova."
+            : "Per attivare il Bluetooth, apri Impostazioni > Bluetooth. Per il permesso di RefurbX usa le impostazioni dell'app."
+        openAppSettings()
     }
 
-    private func openPane(_ urls: [String]) {
+    private func openAppSettings() {
         awaitingSettings = true
-        openRadioCandidates(urls, index: 0)
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 
     private func holdForPermission(camera: Bool) {
@@ -399,25 +410,6 @@ final class DiagModel: ObservableObject {
             Act(label: "Riprova", status: "perm-retry", note: ""),
             Act(label: "Salta", status: "skip", note: camera ? "Permesso fotocamera negato" : "Permesso microfono negato"),
         ]
-    }
-
-    private func openRadioCandidates(_ raw: [String], index: Int) {
-        if index >= raw.count {
-            if let url = URL(string: UIApplication.openSettingsURLString) {
-                UIApplication.shared.open(url)
-            }
-            return
-        }
-        guard let url = URL(string: raw[index]) else {
-            openRadioCandidates(raw, index: index + 1)
-            return
-        }
-        UIApplication.shared.open(url, options: [:]) { [weak self] opened in
-            guard !opened else { return }
-            Task { @MainActor in
-                self?.openRadioCandidates(raw, index: index + 1)
-            }
-        }
     }
 
     func skipCurrent() {
@@ -531,8 +523,9 @@ final class DiagModel: ObservableObject {
                 lines.append("Non su questo modello")
             }
         }
-        let text = lines.joined(separator: "\n")
-        return text.count > 3500 ? String(text.prefix(3480)) + "…" : text
+        lines.append("")
+        lines.append(SheetPDF.disclaimer)
+        return lines.joined(separator: "\n")
     }
 
     func prepareSheet() {
@@ -567,13 +560,16 @@ final class DiagModel: ObservableObject {
             benchState = "Scrivi il codice di sei lettere del banco."
             return
         }
-        flushOutbox()
+        outboxEnabled = true
+        let cablePrepared = flushOutbox()
         benchSending = true
         benchState = "Cerco il banco…"
         Task {
             guard let target = await BenchLink.resolve(raw) else {
                 self.benchSending = false
-                self.benchState = "Non trovo il banco. Se compare il permesso Rete locale, accettalo e premi di nuovo Invia. Il telefono deve essere sulla stessa Wi-Fi del computer, oppure collegato col cavo."
+                self.benchState = cablePrepared
+                    ? "Scheda disponibile per la lettura via cavo dal programma del banco. Il trasferimento al computer non è confermato. Non ho trovato un destinatario via rete."
+                    : "Non trovo il banco e non ho preparato il file per il cavo. Controlla il codice, la connessione e il permesso Rete locale nelle impostazioni dell'app."
                 return
             }
             if let code = BenchLink.displayedCode(raw) {
@@ -601,9 +597,7 @@ final class DiagModel: ObservableObject {
                 "screen": screen,
                 "dpr": scale,
                 "cores": ProcessInfo.processInfo.processorCount,
-                "touchPoints": 5,
-                "language": "it",
-                "secureContext": benchLink.lowercased().hasPrefix("https"),
+                "language": Locale.preferredLanguages.first ?? "und",
             ],
             "tests": outcomes.map { ["id": $0.id, "status": $0.status, "note": $0.note] },
             "note": appearance,
@@ -627,6 +621,7 @@ final class DiagModel: ObservableObject {
     }
 
     private func enter() {
+        wave += 1
         let row = current
         if Self.buttonIds.contains(row.id), outcomes.contains(where: { $0.id == row.id }) {
             goNext()
@@ -676,9 +671,6 @@ final class DiagModel: ObservableObject {
         micSpot = ""
         micLevel = 0
         audioSpot = ""
-        memoryTotal = ""
-        memoryFree = ""
-        memoryUsed = ""
         gpsAccuracy = ""
         gpsLatitude = nil
         gpsLongitude = nil
@@ -692,14 +684,6 @@ final class DiagModel: ObservableObject {
         muteWord = ""
         buttonFinishQueued = false
         buttonBundle = false
-        lightLevel = 0
-        lightWarm = 0
-        lightFloor = 0
-        lightCeil = 0
-        lightBase = 0
-        lightPeak = 0
-        lightFrames = 0
-        lightUsesFrames = false
         if row.id == "nfc" {
             armNfc()
         }
@@ -739,7 +723,7 @@ final class DiagModel: ObservableObject {
     }
 
     private static let immediateIds: Set<String> = [
-        "identity", "memory", "display", "network", "cellular", "vibration",
+        "identity", "display", "network", "cellular", "vibration",
         "flash", "bluetooth", "charging",
     ]
 
@@ -801,6 +785,7 @@ final class DiagModel: ObservableObject {
             ]
         case "camera_back": openCamera(front: false)
         case "camera_front": openCamera(front: true)
+        case "light": startLight()
         case "accelerometer": startAccel()
         case "gyroscope": startGyro()
         case "gps": startGps()
@@ -822,7 +807,6 @@ final class DiagModel: ObservableObject {
         case "truedepth": startTrueDepth()
         case "lidar": startDepth()
         case "proximity": watchProximity()
-        case "light": startLight()
         case "compass": startCompass()
         case "headphones": watchHeadphones()
         case "call":
@@ -862,11 +846,16 @@ final class DiagModel: ObservableObject {
     }
 
     private func still(_ id: String) -> Bool {
-        currentId == id && !settled
+        (phase == "run" || (phase == "guide" && id == "nfc")) && currentId == id && !settled
     }
 
     private func afterCamera(_ block: @escaping () -> Void) {
-        camera.stop(done: block)
+        let seen = wave
+        let id = currentId
+        camera.stop { [weak self] in
+            guard let self, self.wave == seen, self.still(id) else { return }
+            block()
+        }
     }
 
     private func readIdentity() {
@@ -882,26 +871,6 @@ final class DiagModel: ObservableObject {
         }
         actions = [Act(label: "Salta", status: "skip", note: "Non eseguito")]
         later(3) { self.settle("identity", "pass", note) }
-    }
-
-    private func readMemory() {
-        guard let report = DiskProbe.read() else {
-            memoryTotal = ""
-            memoryFree = ""
-            memoryUsed = ""
-            settle("memory", "fail", "Capacità del telefono non letta")
-            return
-        }
-        memoryTotal = DiskProbe.gb(report.total)
-        memoryFree = DiskProbe.gb(report.free)
-        memoryUsed = DiskProbe.gb(report.used)
-        hint = "Totale, libero e usato sono quelli del telefono."
-        detail = report.note
-        actions = [
-            Act(label: "Numeri giusti", status: "pass", note: report.note),
-            Act(label: "Numeri sbagliati", status: "fail", note: "La memoria letta non torna"),
-            Act(label: "Salta", status: "skip", note: "Non eseguito"),
-        ]
     }
 
     private func readNetwork() {
@@ -990,6 +959,7 @@ final class DiagModel: ObservableObject {
     private func armNfc() {
         tags.onActive = { [weak self] in
             guard let self, self.still("nfc") else { return }
+            self.phase = "run"
             self.detail = "Lettore tag aperto"
             self.hint = "Finestra di Apple aperta. Tieni la scheda ferma sul retro, in alto, finché non compare NFC ok."
         }
@@ -1103,7 +1073,7 @@ final class DiagModel: ObservableObject {
     }
 
     private func startGps() {
-        hint = "Se compare la richiesta, consenti la posizione e scegli Precisa. Poi cerco il satellite."
+        hint = "Se compare la richiesta, consenti la posizione e scegli Precisa. Poi mostro la posizione fornita da iOS."
         detail = "In cerca"
         gpsAccuracy = "In cerca"
         gpsLatitude = nil
@@ -1122,7 +1092,7 @@ final class DiagModel: ObservableObject {
             self.gpsAccuracy = "±\(meters) m"
             self.detail = "±\(meters) m · \(lat), \(lon)"
             if location.horizontalAccuracy <= 100 {
-                self.hint = "Posizione corretta. Conferma se il punto sulla mappa è quello giusto."
+                self.hint = "Posizione ricevuta. Conferma se il punto sulla mappa è quello giusto."
             } else {
                 self.hint = "Fix largo. La mappa resta aperta: avvicinati a una finestra oppure accetta questo punto."
             }
@@ -1152,7 +1122,7 @@ final class DiagModel: ObservableObject {
         }
         later(20) {
             guard self.still("gps"), self.bestGps == nil else { return }
-            self.hint = "Ancora nessun satellite. Una finestra aiuta. Il test resta qui finché non arriva un fix o salti."
+            self.hint = "Posizione non ancora disponibile. Prova all’aperto o vicino a una finestra. Puoi attendere o saltare; questo non dimostra un guasto del GPS."
         }
     }
 
@@ -1495,18 +1465,22 @@ final class DiagModel: ObservableObject {
 
     private func watchCharge() {
         UIDevice.current.isBatteryMonitoringEnabled = true
-        actions = [
-            Act(label: "Non entra in carica", status: "fail", note: "Il cavo non fa entrare in carica"),
-            Act(label: "Salta", status: "skip", note: "Non eseguito"),
-        ]
+        updateCableCharge()
+        watch(UIDevice.batteryStateDidChangeNotification) { [weak self] in self?.updateCableCharge() }
+    }
+
+    private func updateCableCharge() {
+        guard still("charging") else { return }
+        hint = "Collega il cavo e rimuovi eventuali caricatori wireless. iOS comunica lo stato di carica, ma non permette a questa prova di distinguere la sorgente: conferma tu il collegamento del cavo."
+        actions = []
         if chargingNow() {
-            settleSoon("charging", "pass", "Il sistema vede la carica")
-            return
+            detail = "iOS segnala carica o batteria piena"
+            actions.append(Act(label: "Confermo: cavo collegato", status: "pass", note: "iOS segnala carica o batteria piena; l'operatore conferma il cavo collegato e l'assenza del pad wireless"))
+        } else {
+            detail = "In attesa della carica"
         }
-        hint = "Collega il cavo. Se il sistema vede la carica, il test prosegue da solo."
-        watch(UIDevice.batteryStateDidChangeNotification) { [weak self] in
-            if self?.chargingNow() == true { self?.settle("charging", "pass", "Il sistema vede la carica") }
-        }
+        actions.append(Act(label: "Non entra in carica", status: "fail", note: "L'operatore non ha osservato la carica con il cavo"))
+        actions.append(Act(label: "Salta", status: "skip", note: "Non eseguito"))
     }
 
     private func chargingNow() -> Bool {
@@ -1540,9 +1514,18 @@ final class DiagModel: ObservableObject {
             sawUnplugged = true
             hint = "Cavo staccato. Appoggia il telefono sul pad, senza ricollegare il cavo."
             detail = "In attesa del pad"
+            actions = [
+                Act(label: "Non carica", status: "fail", note: "Sul pad non entra in carica"),
+                Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            ]
         case .charging, .full:
             if sawUnplugged {
-                settle("wireless", "pass", "In carica sul pad, a cavo staccato")
+                hint = "iOS segnala la carica. Conferma che il cavo sia rimasto staccato e il telefono sia sul pad: l'app non distingue la sorgente di alimentazione."
+                detail = "Conferma manuale della sorgente"
+                actions = [
+                    Act(label: "Confermo: solo pad, senza cavo", status: "pass", note: "iOS segnala carica o batteria piena dopo lo stato scollegato; l'operatore conferma il pad e il cavo assente"),
+                    Act(label: "Non verificabile", status: "skip", note: "Sorgente wireless non confermata"),
+                ]
             } else {
                 hint = "Stacca il cavo. Il pad si prova solo quando il telefono non è già in carica."
                 detail = "Stacca il cavo"
@@ -1562,8 +1545,7 @@ final class DiagModel: ObservableObject {
     }
 
     private static func hasWirelessCharge() -> Bool {
-        guard let major = Machine.iphoneMajor else { return true }
-        return major >= 10
+        HardwareFit.hasWirelessCharge
     }
 
     private func startBiometrics() {
@@ -1575,11 +1557,8 @@ final class DiagModel: ObservableObject {
                 ? "Guarda lo schermo. Compare Face ID: il test passa solo se il volto è quello registrato."
                 : "Guarda il telefono. Compare Face ID: il test passa solo se il volto è quello registrato.")
         detail = touch ? "Touch ID" : "Face ID"
-        actions = biometryActions(touch: touch)
-        later(0.45) {
-            guard self.still("biometrics") else { return }
-            self.armBiometrics(touch: touch)
-        }
+        actions = []
+        armBiometrics(touch: touch)
     }
 
     private func biometryActions(touch: Bool) -> [Act] {
@@ -1873,71 +1852,13 @@ final class DiagModel: ObservableObject {
     }
 
     private func startLight() {
-        lightWarm = 0
-        lightFloor = 0
-        lightCeil = 0
-        lightBase = 0
-        lightPeak = 0
-        lightFrames = 0
-        lightUsesFrames = false
-        showCamera = false
-        lightLevel = 0.25
-        hint = Machine.isDuo
-            ? "Il Duo ha quattro sensori di luce. Avvicina una luce finché la barra arriva al 100%."
-            : "Metti una luce sul sensore davanti, in alto, finché la barra arriva al 100%. Non è la fotocamera dietro."
-        detail = "Luce davanti"
+        hint = "Verifica manuale: in Impostazioni > Accessibilità > Schermo e dimensioni testo attiva Luminosità automatica. Torna qui, copri il sensore ambientale nella zona superiore dello schermo, poi esponilo alla luce e attendi l'adattamento."
+        detail = "Osserva la luminosità dello schermo. L'app non legge il sensore ambientale: il risultato è una conferma dell'operatore e non identifica un guasto hardware."
         actions = [
-            Act(label: "Non reagisce", status: "fail", note: "Il sensore davanti non reagisce"),
-            Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            Act(label: "Variazione osservata", status: "pass", note: "Verifica manuale: l'operatore ha osservato una variazione della luminosità automatica; sensore non misurato dall'app"),
+            Act(label: "Nessuna variazione osservata", status: "fail", note: "Verifica manuale: l'operatore non ha osservato variazioni; esito da approfondire, non diagnosi di guasto del sensore"),
+            Act(label: "Non verificabile", status: "skip", note: "Luminosità automatica non verificata manualmente"),
         ]
-        camera.start(front: true, onFocus: {}, onRunning: {}, onError: { [weak self] _ in
-            self?.pollLight()
-            return
-        }, onMeter: { [weak self] raw in
-            self?.lightUsesFrames = true
-            self?.noteAmbient(raw)
-            return
-        })
-        later(1.5) {
-            guard self.still("light"), self.lightFrames == 0 else { return }
-            self.pollLight()
-        }
-    }
-
-    private func pollLight() {
-        later(0.05) {
-            guard self.still("light"), !self.lightUsesFrames else { return }
-            if let raw = self.camera.ambientLevel() {
-                self.noteAmbient(raw)
-            }
-            guard self.still("light"), !self.lightUsesFrames else { return }
-            self.pollLight()
-        }
-    }
-
-    private func noteAmbient(_ raw: Double) {
-        guard raw.isFinite, raw > 0 else { return }
-        lightFrames += 1
-        if lightWarm < 6 {
-            lightBase = lightWarm == 0 ? raw : (lightBase * 0.65 + raw * 0.35)
-            lightWarm += 1
-            lightLevel = 0.16
-            detail = "Luce davanti 16%"
-            return
-        }
-        let ratio = raw / max(lightBase, 0.000_1)
-        let target = min(1, max(0, 0.16 + (ratio - 1) * 0.30))
-        if target + 0.03 < lightLevel {
-            lightLevel = target
-        } else {
-            lightLevel = lightLevel * 0.35 + target * 0.65
-        }
-        detail = "Luce davanti \(Int((lightLevel * 100).rounded()))%"
-        if target >= 1 || lightLevel >= 0.995 {
-            lightLevel = 1
-            detail = "Luce davanti 100%"
-            settle("light", "pass", "La luce davanti è arrivata al 100%")
-        }
     }
 
     private func watchProximity() {
@@ -2189,6 +2110,7 @@ final class DiagModel: ObservableObject {
         face.cancel()
         faceTrack.stop()
         tone.stop()
+        playback?.stop()
         mic.stop()
         motion.stop()
         place.stop()

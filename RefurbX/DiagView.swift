@@ -53,6 +53,7 @@ private struct IntroScreen: View {
     let startIds: ([String]) -> Void
     let resume: () -> Void
     @State private var opened: String?
+    @State private var showStorage = false
 
     var body: some View {
         if let group = opened {
@@ -117,6 +118,7 @@ private struct IntroScreen: View {
                             }
                         }
                     }
+                    BenchButton(title: "Spazio di archiviazione · informazioni", kind: .secondary) { showStorage = true }
                     RefurbBanner()
                 }
                 .padding(.bottom, 12)
@@ -126,6 +128,7 @@ private struct IntroScreen: View {
         .padding(.top, 18)
         .frame(maxWidth: 720)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .sheet(isPresented: $showStorage) { StorageInfoView() }
     }
 }
 
@@ -380,10 +383,9 @@ private struct RunScreen: View {
         } else if model.currentId == "mute_switch" {
             MuteWord(detail: model.detail, on: model.keyOk)
         } else if model.currentId == "light" {
-            VStack {
-                LightBar(level: model.lightLevel)
-                Spacer(minLength: 0)
-            }
+            Text("Verifica manuale\n\nOsserva se lo schermo cambia luminosità coprendo ed esponendo alla luce la zona del sensore.\n\nL'app non misura il sensore ambientale.")
+                .multilineTextAlignment(.center)
+                .padding()
         } else if model.currentId == "gps" {
             GpsBoard(accuracy: model.gpsAccuracy, latitude: model.gpsLatitude, longitude: model.gpsLongitude)
         } else if model.currentId == "multitouch" {
@@ -749,7 +751,7 @@ private struct ReportScreen: View {
                             .font(Look.text(13, .semibold))
                             .tracking(0.8)
                             .foregroundStyle(cyan)
-                        Text("Col cavo il banco si collega da solo. Se manca, scrivi solo il codice di sei lettere.")
+                        Text("Il banco può essere configurato dal cavo. Scrivi il codice di sei lettere se manca, poi premi Invia al banco per autorizzare il trasferimento della scheda.")
                             .font(Look.text(15))
                             .foregroundStyle(Look.ink)
                         TextField("Q2DRA7", text: $model.benchLink)

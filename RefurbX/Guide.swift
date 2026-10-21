@@ -53,7 +53,8 @@ private enum GuideCopy {
     static func needsSystemPermission(_ id: String) -> Bool {
         switch id {
         case "camera_back", "camera_front", "autofocus", "flash", "truedepth", "lidar",
-             "microphone", "gps", "bluetooth":
+             "microphone", "gps", "compass", "bluetooth", "biometrics",
+             "accelerometer", "gyroscope", "nfc":
             return true
         default:
             return false
@@ -86,7 +87,7 @@ private enum GuideCopy {
         case "truedepth": return "In alto a destra vedi l'anteprima a colori. I puntini sono la mesh del volto: girano con la testa. Restano in memoria solo in questa prova e non vengono inviati. L'infrarosso non arriva all'app."
         case "lidar": return "Si apre la mappa di profondità, in grigio. Avvicina la mano: solo il vicino diventa più scuro. Non è un'immagine a infrarossi e non viene inviata."
         case "proximity": return "Copri il sensore in alto, vicino alla capsula."
-        case "light": return "Metti una luce sul sensore davanti, in alto, finché la barra arriva al 100%."
+        case "light": return "Verifica manuale della luminosità automatica: attivala in Impostazioni > Accessibilità > Schermo e dimensioni testo. Copri la zona superiore dello schermo, poi esponila alla luce e osserva la variazione. L’app non legge il sensore ambientale."
         case "accelerometer": return "Inclina il telefono verso i quattro bordi, come la pallina."
         case "gyroscope": return "Tienilo fermo, poi inclinalo di lato, avanti e giralo. I tre assi devono muoversi."
         case "compass": return "Tienilo in piano e fai un giro completo. Si accendono 8 punti. Finché manca un punto, il test non va avanti."
@@ -104,8 +105,8 @@ private enum GuideCopy {
                 return "Premi il tasto Azione e passa da Suono a Silenzioso, poi di nuovo a Suono. Conferma tu: l'app non legge lo stato."
             }
             return "Sposta l'interruttore da Suono a Silenzioso, poi di nuovo a Suono. Conferma tu: l'app non legge lo stato."
-        case "charging": return "Collega il cavo. Il test passa quando il sistema vede la carica."
-        case "wireless": return "Stacca il cavo e appoggia il telefono sul pad. Passa solo se, da staccato, torna in carica."
+        case "charging": return "Collega il cavo e rimuovi il pad wireless. Quando iOS segnala la carica, conferma il cavo: l’app non distingue la sorgente."
+        case "wireless": return "Stacca il cavo e appoggia il telefono sul pad. Quando iOS segnala la carica, conferma che il cavo sia rimasto staccato: la sorgente è verificata dall’operatore."
         case "biometrics":
             if FaceProbe.prefersTouch() {
                 return "Appoggia il dito \(HardwareFit.fingerprintPlace). Il test passa solo se l'impronta è quella registrata."
@@ -248,7 +249,8 @@ private struct DemoScene: View {
             case "camera_front", "biometrics":
                 frontFace
             case "light":
-                lightMeter
+                Text("Verifica manuale\nOsserva la luminosità dello schermo")
+                    .multilineTextAlignment(.center)
             case "truedepth":
                 faceDots
             case "lidar":
@@ -633,34 +635,6 @@ private struct DemoScene: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(22)
-    }
-
-    private var lightMeter: some View {
-        let level = lightDrop(loop)
-        return VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                Capsule()
-                    .fill(Color.white.opacity(0.92))
-                    .frame(width: 32, height: 6)
-                Capsule()
-                    .fill(cyan)
-                    .frame(width: 14 + CGFloat(level) * 92, height: 12)
-                    .shadow(color: cyan.opacity(0.55), radius: 6)
-            }
-            .padding(.top, 36)
-            Text("\(Int((level * 100).rounded()))%")
-                .font(Look.text(15, .semibold))
-                .monospacedDigit()
-                .foregroundStyle(cyan)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
-
-    private func lightDrop(_ loop: Double) -> Double {
-        if loop < 0.34 { return 0.12 + (loop / 0.34) * 0.84 }
-        if loop < 0.5 { return 0.96 }
-        return max(0.08, 0.96 - (loop - 0.5) / 0.4 * 0.88)
     }
 
     private var forceDemo: some View {

@@ -42,7 +42,7 @@ enum Catalog {
         Row(id: "truedepth", group: "Foto", title: "TrueDepth", weight: 1, critical: false),
         Row(id: "lidar", group: "Sensori", title: "Scanner LiDAR", weight: 1, critical: false),
         Row(id: "proximity", group: "Sensori", title: "Prossimità", weight: 1, critical: false),
-        Row(id: "light", group: "Sensori", title: "Sensore di luce", weight: 1, critical: false),
+        Row(id: "light", group: "Schermo", title: "Luminosità automatica (manuale)", weight: 1, critical: false),
         Row(id: "accelerometer", group: "Sensori", title: "Accelerometro", weight: 2, critical: false),
         Row(id: "gyroscope", group: "Sensori", title: "Giroscopio", weight: 1, critical: false),
         Row(id: "compass", group: "Sensori", title: "Bussola", weight: 1, critical: false),

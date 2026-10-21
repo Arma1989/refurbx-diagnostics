@@ -54,16 +54,20 @@ enum SheetPDF {
                         y += 4
                     }
                     let status = statusIt(row.status)
-                    y = ensure(y, gap: row.note.isEmpty ? 22 : 36, context: context, page: page)
                     let titleFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
-                    (row.title as NSString).draw(at: CGPoint(x: 36, y: y), withAttributes: [.font: titleFont, .foregroundColor: ink])
+                    let noteFont = UIFont.systemFont(ofSize: 10, weight: .regular)
+                    let titleHeight = textHeight(row.title, font: titleFont, width: 370)
+                    let noteHeight = row.note.isEmpty ? 0 : textHeight(row.note, font: noteFont, width: 523) + 6
+                    y = ensure(y, gap: titleHeight + noteHeight + 8, context: context, page: page)
+                    let titleY = y
+                    draw(row.title, titleFont, ink, x: 36, y: &y, width: 370)
                     let statusFont = UIFont.systemFont(ofSize: 12, weight: .regular)
                     let statusWidth = (status as NSString).size(withAttributes: [.font: statusFont]).width
-                    (status as NSString).draw(at: CGPoint(x: 559 - statusWidth, y: y), withAttributes: [.font: statusFont, .foregroundColor: mute])
-                    y += 16
+                    (status as NSString).draw(at: CGPoint(x: 559 - statusWidth, y: titleY), withAttributes: [.font: statusFont, .foregroundColor: mute])
+                    y = max(y, titleY + 16) + 4
                     if !row.note.isEmpty {
-                        draw(String(row.note.prefix(140)), UIFont.systemFont(ofSize: 10, weight: .regular), mute, x: 36, y: &y, width: 523)
-                        y += 4
+                        draw(row.note, noteFont, mute, x: 36, y: &y, width: 523)
+                        y += 6
                     }
                 }
                 y += 12
@@ -175,6 +179,14 @@ enum SheetPDF {
         UIColor(red: 37.0 / 255, green: 61.0 / 255, blue: 78.0 / 255, alpha: 0.16).setFill()
         UIBezierPath(rect: CGRect(x: 36, y: 50, width: 523, height: 1)).fill()
         return 64
+    }
+
+    private static func textHeight(_ text: String, font: UIFont, width: CGFloat) -> CGFloat {
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byWordWrapping
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .paragraphStyle: style]
+        let bounds = (text as NSString).boundingRect(with: CGSize(width: width, height: 800), options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: attributes, context: nil)
+        return ceil(bounds.height)
     }
 
     private static func draw(_ text: String, _ font: UIFont, _ color: UIColor, x: CGFloat, y: inout CGFloat, width: CGFloat) {

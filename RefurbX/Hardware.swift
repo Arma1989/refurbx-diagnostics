@@ -19,6 +19,12 @@ enum HardwareFit {
         switch id {
         case "stylus":
             return acceptsPencil
+        case "accelerometer":
+            return CMMotionManager().isAccelerometerAvailable
+        case "gyroscope":
+            return CMMotionManager().isGyroAvailable
+        case "compass":
+            return CLLocationManager.headingAvailable()
         case "force":
             return UIScreen.main.traitCollection.forceTouchCapability == .available
         case "lidar":
@@ -81,12 +87,6 @@ enum HardwareFit {
 
     static var hasWirelessCharge: Bool {
         if pad { return false }
-        switch Machine.identifier {
-        case "iPhone12,8", "iPhone14,6", "iPhone17,5":
-            return false
-        default:
-            break
-        }
         guard let major = Machine.iphoneMajor else { return true }
         return major >= 10
     }
@@ -589,6 +589,7 @@ final class MicProbe {
         recorder?.stop()
         recorder = nil
         peak = 0
+        try? FileManager.default.removeItem(at: url)
     }
 }
 
@@ -1482,60 +1483,6 @@ final class Gate {
     }
 }
 
-enum DiskProbe {
-    struct Report {
-        var total: Int64
-        var free: Int64
-        var used: Int64
-        var note: String
-    }
-
-    static func read() -> Report? {
-        let url = URL(fileURLWithPath: NSHomeDirectory())
-        let keys: Set<URLResourceKey> = [
-            .volumeTotalCapacityKey,
-            .volumeAvailableCapacityKey,
-            .volumeAvailableCapacityForImportantUsageKey,
-            .volumeAvailableCapacityForOpportunisticUsageKey,
-        ]
-        guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
-        let total = bytes(values.volumeTotalCapacity)
-        guard total >= 16_000_000_000 else { return nil }
-        let candidates: [Int64] = [
-            bytes(values.volumeAvailableCapacityForImportantUsage),
-            bytes(values.volumeAvailableCapacity),
-            bytes(values.volumeAvailableCapacityForOpportunisticUsage),
-        ]
-        var free: Int64 = 0
-        for candidate in candidates where candidate > 0 && candidate < total {
-            free = candidate
-            break
-        }
-        let used: Int64 = total > free ? total - free : 0
-        let note = "Totale \(gb(total)) · Libero \(gb(free)) · Usato \(gb(used))"
-        return Report(total: total, free: free, used: used, note: note)
-    }
-
-    static func gb(_ bytes: Int64) -> String {
-        String(format: "%.1f GB", Double(bytes) / 1_000_000_000).replacingOccurrences(of: ".", with: ",")
-    }
-
-    private static func bytes(_ value: Any?) -> Int64 {
-        var current: Any = value as Any
-        for _ in 0..<4 {
-            let mirror = Mirror(reflecting: current)
-            guard mirror.displayStyle == .optional else { break }
-            guard let child = mirror.children.first else { return 0 }
-            current = child.value
-        }
-        if let number = current as? Int64 { return number }
-        if let number = current as? Int { return Int64(number) }
-        if let number = current as? UInt64 { return Int64(clamping: number) }
-        if let number = current as? NSNumber { return number.int64Value }
-        return 0
-    }
-}
-
 enum SignedNfc {
     static func profile() -> (name: String, formats: [String]) {
         guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
@@ -1763,7 +1710,7 @@ final class FaceProbe {
             guard token == generation else { return }
             let code = error.flatMap { LAError.Code(rawValue: $0.code) }
             if code == .biometryNotAvailable {
-                done("absent", "Nessun Face ID o Touch ID")
+                done("skip", "Biometria non disponibile o non autorizzata: nessuna conclusione sull’integrità del sensore")
             } else if code == .biometryNotEnrolled {
                 let touch = FaceProbe.prefersTouch()
                 done("setup", touch
