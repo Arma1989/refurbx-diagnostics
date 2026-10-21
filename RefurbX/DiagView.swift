@@ -44,8 +44,8 @@ struct DiagView: View {
             model.onScenePhase(phase)
         }
         .alert(model.settingsGuideTitle, isPresented: $model.showSettingsGuide) {
-            Button("Ho attivato, riprova") { model.retryAfterSettingsGuide() }
-            Button("Annulla", role: .cancel) {}
+            Button("Riprova") { model.retryAfterSettingsGuide() }
+            Button("Salta", role: .cancel) { model.skipCurrent() }
         } message: {
             Text(model.settingsGuideMessage)
         }
@@ -89,6 +89,13 @@ private struct IntroScreen: View {
             Text("Tocca un quadrato per aprire la sezione. Dentro, tocca una prova e parte subito.")
                 .font(Look.text(17))
                 .foregroundStyle(Look.ink)
+            Link("Informativa privacy", destination: URL(string: "https://refurbx.eu/privacy-policy")!)
+                .font(Look.text(14, .semibold))
+                .foregroundStyle(cyan)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(releaseLabel)
+                .font(Look.text(12))
+                .foregroundStyle(Look.mute)
             if canResume {
                 BenchButton(title: "Riprendi la scheda", kind: .secondary, action: resume)
             }
@@ -126,11 +133,6 @@ private struct IntroScreen: View {
                     }
                     BenchButton(title: "Spazio di archiviazione · informazioni", kind: .secondary) { showStorage = true }
                     RefurbBanner()
-                    Link("Informativa privacy", destination: URL(string: "https://refurbx.eu/privacy-policy")!)
-                        .font(Look.text(14, .medium))
-                        .foregroundStyle(cyan)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 8)
                 }
                 .padding(.bottom, 12)
             }
@@ -140,6 +142,13 @@ private struct IntroScreen: View {
         .frame(maxWidth: 720)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .sheet(isPresented: $showStorage) { StorageInfoView() }
+    }
+
+    private var releaseLabel: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info["CFBundleVersion"] as? String ?? "—"
+        return "Versione \(version) (build \(build))"
     }
 }
 

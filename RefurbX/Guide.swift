@@ -67,7 +67,7 @@ private enum GuideCopy {
         case "touch": return "Trascina un dito su tutte le celle, anche sui bordi."
         case "multitouch": return "Appoggia due dita insieme, come nell'esempio."
         case "force": return "Premi piano e poi forte nel riquadro. Questo schermo misura la pressione."
-        case "light": return "Verifica automatica della risposta della luminosità: attiva Luminosità automatica nelle impostazioni di iOS. Durante la prova copri la zona superiore, poi scopri il sensore e porta il telefono in un ambiente luminoso. L'app osserva solo la variazione della luminosità dello schermo; non legge il sensore né misura i lux."
+        case "light": return "Verifica manuale: attiva Luminosità automatica nelle impostazioni di iOS. Durante la prova copri la zona superiore, poi scoprila e porta il telefono in un ambiente luminoso. Conferma solo ciò che osservi: RefurbX non legge il sensore ambientale né misura i lux."
         case "stylus": return "Scrivi con la Apple Pencil. Il dito non fa passare il test."
         case "speaker": return "Una nota sale dall'altoparlante in basso. Poi confermi a mano se è chiara."
         case "earpiece": return "Avvicina l'orecchio alla capsula in alto, segnata nell'esempio."

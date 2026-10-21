@@ -9,13 +9,13 @@ struct StorageSnapshot {
 
     static func read() throws -> StorageSnapshot {
         let url = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-        let values = try url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey])
+        let values = try url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey])
         guard let totalValue = values.volumeTotalCapacity,
-              let availableValue = values.volumeAvailableCapacityForImportantUsage,
-              totalValue > 0, availableValue >= 0, availableValue <= Int64(totalValue) else {
+              let availableValue = values.volumeAvailableCapacity,
+              totalValue > 0, availableValue >= 0, availableValue <= totalValue else {
             throw CocoaError(.fileReadUnknown)
         }
-        return StorageSnapshot(total: Int64(totalValue), available: availableValue)
+        return StorageSnapshot(total: Int64(totalValue), available: Int64(availableValue))
     }
 
     static func format(_ bytes: Int64) -> String {
@@ -40,15 +40,15 @@ struct StorageInfoView: View {
                 Section("Informazioni sul volume") {
                     if let snapshot {
                         LabeledContent("Spazio totale del volume", value: StorageSnapshot.format(snapshot.total))
-                        LabeledContent("Disponibile secondo iOS", value: StorageSnapshot.format(snapshot.available))
-                        LabeledContent("Occupato (calcolato)", value: StorageSnapshot.format(snapshot.occupied))
+                        LabeledContent("Spazio libero", value: StorageSnapshot.format(snapshot.available))
+                        LabeledContent("Spazio occupato (stima)", value: StorageSnapshot.format(snapshot.occupied))
                     } else {
                         Text(unavailable ? "Informazioni non disponibili. Riprova più tardi." : "Lettura in corso…")
                     }
                 }
                 Section {
-                    Text("Dati del volume restituiti da iOS al momento della lettura. Il disponibile è la capacità che iOS stima utilizzabile per risorse importanti. Lo spazio occupato è calcolato sottraendo il disponibile dal totale. 1 GB = 1 miliardo di byte.")
-                    Text("Il valore può differire da Impostazioni perché iOS gestisce cache e spazio recuperabile. Non è una diagnosi della memoria RAM o dell'integrità del disco.")
+                    Text("Dati del volume restituiti da iOS al momento della lettura. Lo spazio libero è la capacità disponibile del volume. Lo spazio occupato è una stima calcolata sottraendo il libero dal totale. 1 GB = 1 miliardo di byte.")
+                    Text("Il valore può differire leggermente da Impostazioni perché iOS gestisce cache, dati di sistema e spazio recuperabile. Non è una diagnosi della memoria RAM o dell'integrità del disco.")
                     Text("Questa schermata è informativa: non esegue una diagnosi della RAM o dell'integrità dell'archiviazione. I valori non vengono salvati nella scheda, esportati o inviati al banco.")
                 }
                 Section {

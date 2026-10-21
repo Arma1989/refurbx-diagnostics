@@ -92,10 +92,6 @@ final class DiagModel: ObservableObject {
     let camera = CameraSession()
 
     private var cableWatch: Timer?
-    private var lightTimer: Timer?
-    private var lightStartedAt: Date?
-    private var lightMinimum: CGFloat = 1
-    private var lightMaximum: CGFloat = 0
     private var outboxEnabled = false
 
     init() {
@@ -326,10 +322,6 @@ final class DiagModel: ObservableObject {
             showRadioGuide(wifi: true)
         case "open-bluetooth":
             showRadioGuide(wifi: false)
-        case "light-settings":
-            settingsGuideTitle = "Luminosità automatica"
-            settingsGuideMessage = "Apri Impostazioni > Accessibilità > Schermo e dimensioni testo > Luminosità automatica e attivala. Poi torna a RefurbX e tocca Ho attivato, riprova. iOS non consente a RefurbX di aprire direttamente questa schermata o leggere lo stato dell'interruttore."
-            showSettingsGuide = true
         case "open-settings":
             if let url = URL(string: UIApplication.openSettingsURLString) {
                 awaitingSettings = true
@@ -405,7 +397,6 @@ final class DiagModel: ObservableObject {
         switch currentId {
         case "network": readNetwork()
         case "bluetooth": startBluetooth()
-        case "light": startLight()
         default: break
         }
     }
@@ -637,49 +628,13 @@ final class DiagModel: ObservableObject {
     }
 
     private func startLight() {
-        lightTimer?.invalidate()
-        let initial = UIScreen.main.brightness
-        lightStartedAt = Date()
-        lightMinimum = initial
-        lightMaximum = initial
-        hint = "Controllo automatico in 40 secondi. Attiva Luminosità automatica in Impostazioni > Accessibilità > Schermo e dimensioni testo."
-        detail = "Copri la zona superiore dello schermo per 15 secondi; poi scopri il sensore e porta il telefono in un ambiente luminoso. Non toccare il cursore luminosità."
+        hint = "Verifica manuale: in Impostazioni > Accessibilità > Schermo e dimensioni testo attiva Luminosità automatica. Torna qui, copri la zona superiore dello schermo, poi esponila alla luce e attendi l'adattamento."
+        detail = "Osserva se la luminosità dello schermo cambia. RefurbX non legge il sensore ambientale; questa osservazione non conferma né esclude un guasto hardware."
         actions = [
-            Act(label: "Come attivare Luminosità automatica", status: "light-settings", note: ""),
-            Act(label: "Interrompi", status: "skip", note: "Verifica della risposta alla luce interrotta"),
+            Act(label: "Variazione osservata", status: "pass", note: "L'operatore ha osservato una variazione della luminosità automatica dello schermo; non è una diagnosi del sensore ambientale"),
+            Act(label: "Nessuna variazione · inconclusivo", status: "skip", note: "L'operatore non ha osservato una variazione; esito inconclusivo, non è una diagnosi del sensore ambientale"),
+            Act(label: "Non verificabile", status: "skip", note: "Luminosità automatica non verificata manualmente"),
         ]
-        lightTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
-            Task { @MainActor in
-                guard let self, self.still("light"), let started = self.lightStartedAt else {
-                    timer.invalidate()
-                    return
-                }
-                let elapsed = Date().timeIntervalSince(started)
-                let value = UIScreen.main.brightness
-                self.lightMinimum = min(self.lightMinimum, value)
-                self.lightMaximum = max(self.lightMaximum, value)
-                let range = self.lightMaximum - self.lightMinimum
-                self.detail = String(format: "Luminosità schermo %.0f%% · variazione osservata %.0f%%. Il valore è dello schermo, non una misura in lux.", value * 100, range * 100)
-                if elapsed < 15 {
-                    self.hint = "Fase 1/2 · Copri con la mano la zona superiore dello schermo."
-                } else if elapsed < 40 {
-                    self.hint = "Fase 2/2 · Scopri la zona superiore e porta il telefono in un ambiente luminoso. Attendi l'adattamento automatico."
-                } else {
-                    timer.invalidate()
-                    self.lightTimer = nil
-                    self.lightStartedAt = nil
-                    if range >= 0.06 {
-                        self.hint = "Variazione automatica della luminosità dello schermo rilevata."
-                        self.detail += " La prova conferma solo una risposta osservata; non certifica il sensore ambientale."
-                        self.actions = [Act(label: "Continua", status: "pass", note: String(format: "Risposta automatica della luminosità dello schermo osservata (variazione %.0f%%); non è una diagnosi del sensore ambientale", range * 100))]
-                    } else {
-                        self.hint = "Nessuna variazione sufficiente rilevata: esito inconclusivo. Verifica Luminosità automatica e riprova in ambienti con luce diversa."
-                        self.detail += " L'app non può concludere che il sensore sia guasto."
-                        self.actions = [Act(label: "Esito inconclusivo", status: "skip", note: "Nessuna variazione automatica sufficiente osservata; non è una diagnosi di guasto del sensore ambientale")]
-                    }
-                }
-            }
-        }
     }
 
     private func enter() {
@@ -954,12 +909,13 @@ final class DiagModel: ObservableObject {
             } else {
                 self.keyOk = false
                 self.detail = "Wi-Fi non collegato"
-                self.hint = "Apri il Wi-Fi, accendilo e torna qui: il controllo riparte da solo."
+                self.hint = "Segui le istruzioni e attiva il Wi-Fi in Impostazioni."
                 self.actions = [
                     Act(label: "Come attivare Wi-Fi", status: "open-wifi", note: ""),
                     Act(label: "Riprova", status: "wifi-retry", note: ""),
                     Act(label: "Salta", status: "skip", note: "Non eseguito"),
                 ]
+                self.showRadioGuide(wifi: true)
             }
         }
     }
@@ -1686,6 +1642,7 @@ final class DiagModel: ObservableObject {
                 Act(label: denied ? "Apri Impostazioni" : "Come attivare Bluetooth", status: denied ? "open-settings" : "open-bluetooth", note: ""),
                 Act(label: "Salta", status: "skip", note: "Non eseguito"),
             ]
+            if !denied { self.showRadioGuide(wifi: false) }
         }
         radio.stop()
         radio.start()
@@ -2159,9 +2116,6 @@ final class DiagModel: ObservableObject {
     }
 
     private func cleanup(releaseCamera: Bool = true) {
-        lightTimer?.invalidate()
-        lightTimer = nil
-        lightStartedAt = nil
         showCamera = false
         face.cancel()
         faceTrack.stop()
