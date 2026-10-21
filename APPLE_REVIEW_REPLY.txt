@@ -4,12 +4,13 @@ Hello App Review Team,
 
 Thank you for the detailed feedback regarding submission 133894b8-df2a-4885-9f1d-b74f6347c8cb, version 1.0.80 (82).
 
-We have revised the project for version 1.0.82 (86) as follows:
+We have revised the project for version 1.0.82 (89) as follows:
 
 Guideline 1.1.6:
-- The app does not offer a device memory diagnostic. The old diagnostic implementation and memory-test state have been removed. A separate informational screen displays volume capacity and available capacity for important usage returned by public Foundation APIs; occupied space is calculated. It does not test RAM or storage hardware integrity, has no pass/fail result and is excluded from diagnostic reports and shop exports. These display-only values are not persisted or sent off-device. The privacy manifest declares disk-space reason 85F4.1. The screen explains that volume figures may differ from Settings and nominal device capacity.
-- The light check observes changes in the public screen-brightness value while the operator covers and uncovers the upper screen with Auto-Brightness enabled. It does not read ambient light or lux, use the camera as a proxy, or claim to diagnose sensor hardware. If no change is observed, the result is inconclusive rather than a failure.
+- The app does not offer a device memory diagnostic. The old diagnostic implementation and memory-test state have been removed. A separate informational screen displays total and available volume capacity returned by public Foundation APIs; occupied space is estimated. It does not test RAM or storage hardware integrity, has no pass/fail result and is excluded from diagnostic reports and shop exports. These display-only values are not persisted or sent off-device. The privacy manifest declares disk-space reason 85F4.1.
+- The light check is an operator-observed check of whether the screen brightness changes while Auto-Brightness is enabled and the upper screen is covered and uncovered. RefurbX does not read the ambient-light sensor or measure lux. The result is clearly identified as an observation, not a sensor diagnosis; no observed change is inconclusive.
 - The NFC explanation screen has a Continue button without a Skip option. Tapping Continue starts the Core NFC reader session directly, which displays Apple's system scanning sheet. A separate retry button is available only if the session ends before a tag is read.
+- The public privacy-policy link is visible on the app's home screen before starting tests.
 
 Guideline 5.1.1(iv):
 - The custom explanations preceding permission-related features do not include a Skip button. Continue starts the relevant feature and its system authorization flow when authorization has not already been determined.
