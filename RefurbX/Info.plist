@@ -19,7 +19,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.0.82</string>
 	<key>CFBundleVersion</key>
-	<string>91</string>
+	<string>92</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
@@ -49,7 +49,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>RefurbX registra il microfono solo per farlo riascoltare durante il controllo in negozio. L'audio non viene caricato.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>RefurbX usa la posizione durante le prove GPS e bussola. Le coordinate GPS sono mostrate durante la prova; la scheda riporta solo la precisione in metri.</string>
+	<string>RefurbX usa la posizione precisa solo durante la prova GPS per mostrare il punto reale e misurare la precisione in metri. La bussola usa il sensore magnetico e non accede alla posizione.</string>
 	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
 	<dict>
 		<key>DiagFix</key>

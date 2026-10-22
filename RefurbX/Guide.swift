@@ -47,7 +47,7 @@ private enum GuideCopy {
     static func needsSystemPermission(_ id: String) -> Bool {
         switch id {
         case "camera_back", "camera_front", "autofocus", "flash", "truedepth", "lidar",
-             "microphone", "gps", "compass", "bluetooth", "biometrics",
+             "microphone", "gps", "bluetooth", "biometrics",
              "accelerometer", "gyroscope", "nfc":
             return true
         default:
@@ -84,7 +84,7 @@ private enum GuideCopy {
         case "proximity": return "Copri il sensore in alto, vicino alla capsula."
         case "accelerometer": return "Inclina il telefono verso i quattro bordi, come la pallina."
         case "gyroscope": return "Tienilo fermo, poi inclinalo di lato, avanti e giralo. I tre assi devono muoversi."
-        case "compass": return "Tienilo in piano e fai un giro completo. Si accendono 8 punti. Finché manca un punto, il test non va avanti."
+        case "compass": return "La bussola legge il magnetometro: non richiede l'accesso alla posizione. Tieni l'iPhone in piano, lontano da oggetti o custodie magnetiche, e ruotalo lentamente per un giro completo finché si accendono gli 8 punti."
         case "gps": return "Consente la posizione precisa. Si apre una mappa con il punto reale: confermi tu quando è quello giusto."
         case "bluetooth": return "Resta sulla schermata. Si vede se il Bluetooth è acceso. Se è spento, accendilo e riprova."
         case "nfc": return "Premi Continua: si apre automaticamente il lettore NFC di Apple. Tieni la scheda ferma sul retro, in alto, finché il tag viene letto."

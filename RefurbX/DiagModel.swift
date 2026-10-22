@@ -42,6 +42,7 @@ final class DiagModel: ObservableObject {
     @Published var gyroYawDeg: Double = 0
     @Published var compassMarks: Set<Int> = []
     @Published var heading: Double = 0
+    private var compassAttempt = 0
     @Published var proximityLit = false
     @Published var depthShot: UIImage?
     @Published var lenses: [AVCaptureDevice.DeviceType] = []
@@ -321,6 +322,8 @@ final class DiagModel: ObservableObject {
             startCellular()
         case "bt-retry":
             startBluetooth()
+        case "compass-retry":
+            startCompass()
         case "open-wifi":
             showRadioGuide(wifi: true)
         case "open-bluetooth":
@@ -1987,7 +1990,10 @@ final class DiagModel: ObservableObject {
     }
 
     private func startCompass() {
-        hint = "Tienilo in piano. Gira piano finché si accendono tutti gli 8 punti. Il test resta qui finché il giro non è completo."
+        compassAttempt += 1
+        let attempt = compassAttempt
+        hint = "Bussola attiva. Tieni l'iPhone in piano e ruotalo lentamente per un giro completo. Se non arriva una lettura, togli custodie o accessori magnetici e riprova."
+        detail = "Attendo il sensore magnetico…"
         actions = [
             Act(label: "Non gira", status: "fail", note: "La bussola non segue la rotazione"),
             Act(label: "Salta", status: "skip", note: "Non eseguito"),
@@ -2006,14 +2012,23 @@ final class DiagModel: ObservableObject {
             }
         }
         place.onDenied = { [weak self] in
-            guard let self, self.still("compass") else { return }
-            self.hint = "La bussola chiede la posizione. Apri Posizione, consenti RefurbX, poi torna nell'app e ruota il telefono."
+            guard let self, self.compassAttempt == attempt, self.still("compass") else { return }
+            self.hint = "Questo dispositivo non sta fornendo dati validi dalla bussola. Riprova lontano da custodie o accessori magnetici."
             self.actions = [
-                Act(label: "Apri Posizione", status: "open-location", note: ""),
-                Act(label: "Salta", status: "skip", note: "Permesso posizione negato"),
+                Act(label: "Riprova bussola", status: "compass-retry", note: ""),
+                Act(label: "Salta", status: "skip", note: "Sensore bussola non disponibile"),
             ]
         }
         place.startHeading()
+        later(8) {
+            guard self.compassAttempt == attempt, self.still("compass"), self.compassMarks.isEmpty else { return }
+            self.hint = "Non arrivano letture dal sensore magnetico. Togli la custodia o gli accessori magnetici, muovi lentamente l'iPhone a forma di 8 e riprova."
+            self.actions = [
+                Act(label: "Riprova bussola", status: "compass-retry", note: ""),
+                Act(label: "Non gira", status: "fail", note: "La bussola non segue la rotazione"),
+                Act(label: "Salta", status: "skip", note: "Non eseguito"),
+            ]
+        }
     }
 
     private func watchHeadphones() {

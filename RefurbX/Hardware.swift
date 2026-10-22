@@ -1229,7 +1229,7 @@ final class PlaceProbe: NSObject, CLLocationManagerDelegate {
         manager.distanceFilter = kCLDistanceFilterNone
         manager.activityType = .other
         manager.pausesLocationUpdatesAutomatically = false
-        manager.headingFilter = 5
+        manager.headingFilter = kCLHeadingFilterNone
     }
 
     func requestFix() {
@@ -1239,7 +1239,12 @@ final class PlaceProbe: NSObject, CLLocationManagerDelegate {
 
     func startHeading() {
         mode = .heading
-        begin()
+        manager.stopUpdatingHeading()
+        guard CLLocationManager.headingAvailable() else {
+            onDenied?()
+            return
+        }
+        manager.startUpdatingHeading()
     }
 
     func stop() {
@@ -1290,6 +1295,7 @@ final class PlaceProbe: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        guard mode == .fix else { return }
         switch manager.authorizationStatus {
         case .authorizedAlways, .authorizedWhenInUse:
             startAuthorized()
@@ -1304,6 +1310,10 @@ final class PlaceProbe: NSObject, CLLocationManagerDelegate {
         guard mode == .heading, newHeading.headingAccuracy >= 0 else { return }
         let heading = newHeading
         DispatchQueue.main.async { [weak self] in self?.onHeading?(heading) }
+    }
+
+    func locationManagerShouldDisplayHeadingCalibration(_ manager: CLLocationManager) -> Bool {
+        mode == .heading
     }
 }
 
