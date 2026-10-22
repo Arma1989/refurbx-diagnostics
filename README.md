@@ -1,4 +1,4 @@
-# RefurbX 1.0.82 (91) — preparazione alla revisione
+# RefurbX 1.0.82 (92) — preparazione alla revisione
 
 Progetto Swift per iPhone e iPad, iOS 17 o successivo. Bundle eu.refurbx.diagnostics. Il progetto Xcode viene generato da project.yml con XcodeGen.
 
@@ -7,7 +7,8 @@ Questa consegna contiene correzioni ai sorgenti. Non è stata compilata con Xcod
 ## Correzioni
 
 - Eliminati funzione readMemory, stato e riferimenti del vecchio test memoria, già assente dal catalogo 1.0.81. Nessuna diagnosi di RAM o integrità dell’archiviazione. La lettura del volume è disponibile soltanto nella nuova schermata informativa Spazio di archiviazione.
-- Pre-schermate dei permessi: assenza di Salta anche per bussola, biometria, movimento e NFC. L'utente mantiene il controllo nella richiesta di sistema e può saltare le prove dopo un rifiuto.
+- Pre-schermate dei permessi: assenza di Salta per biometria, movimento e NFC. La bussola avvia direttamente il magnetometro senza chiedere la posizione; il GPS mantiene la propria autorizzazione. L'utente può saltare le prove dopo un rifiuto.
+- Bussola: lettura magnetica diretta, aggiornamenti senza filtro angolare, calibrazione di sistema e messaggio con tentativo di ripetizione se non arrivano letture.
 - NFC: dopo la spiegazione, Continua avvia direttamente la sessione Core NFC e mostra il foglio di scansione di Apple. Rimosso il pulsante intermedio Apri lettore tag; Riprova NFC compare solo se la sessione si chiude prima di una lettura.
 - Il ritorno in primo piano non avvia più richieste GPS dalla fase di spiegazione. Ripristino TrueDepth dopo Impostazioni incluso.
 - Luce: adattata alla procedura iOS documentata da M360. RefurbX imposta un riferimento di luminosità schermo, mostra il livello corrente dello schermo e chiede all'operatore di osservare se cambia coprendo e illuminando il sensore con Luminosità automatica attiva. Nessuna richiesta fotocamera e nessuna lettura diretta del sensore; il numero indica solo la luminosità dello schermo.
@@ -15,7 +16,7 @@ Questa consegna contiene correzioni ai sorgenti. Non è stata compilata con Xcod
 - Privacy manifest: dichiarazione UserDefaults, motivo CA92.1 per preferenze dell'app; dichiarato 85F4.1 per mostrare lo spazio del volume nella schermata informativa, separata dai test e dagli export.
 - Aggiunto nella home il collegamento diretto all'informativa privacy. Prima della revisione verifica che https://refurbx.eu/privacy-policy sia raggiungibile, descriva correttamente i dati e le finalità effettivi e coincida con l'URL indicato nei metadati App Store Connect.
 - Esclusi dai risultati ripristinati gli identificativi non più presenti nel catalogo.
-- Versione coerente in Info.plist e project.yml: 1.0.82, build 91. La schermata iniziale mostra anche versione e build installate.
+- Versione coerente in Info.plist e project.yml: 1.0.82, build 92. La schermata iniziale mostra anche versione e build installate.
 - Codemagic usa scripts/apply_profile.py leggibile, invece di due copie codificate Base64 identiche. Aggiunto preflight. Tolta la cancellazione automatica dei profili remoti Apple; restano verifica e selezione del profilo NFC TAG.
 
 ## Caricamento su Codemagic
@@ -24,7 +25,7 @@ Questa consegna contiene correzioni ai sorgenti. Non è stata compilata con Xcod
 2. Usa il workflow RefurbX iOS (identificativo ios-testflight). Parte manualmente.
 3. Mantieni l'integrazione App Store Connect chiamata RefurbX e il gruppo di variabili signing con CERTIFICATE_PRIVATE_KEY. Usa i segreti già configurati nel tuo account, senza inserirli nei file.
 4. L'App ID eu.refurbx.diagnostics deve avere NFC Tag Reading e un profilo App Store valido con TAG. Se manca, configura o rigenera il profilo corretto in Apple Developer e ripeti la build. Il workflow non cancella più profili sul tuo account.
-5. Controlla in TestFlight che la build elaborata sia 1.0.82 (91). La schermata iniziale dell'app mostra la stessa versione e build.
+5. Controlla in TestFlight che la build elaborata sia 1.0.82 (92). La schermata iniziale dell'app mostra la stessa versione e build.
 6. Avvia la build. Il workflow compila, verifica la firma NFC e carica su App Store Connect; NON invia automaticamente in revisione e NON abilita la distribuzione TestFlight. Per provare su un dispositivo usa il canale di test interno già configurato oppure una build di sviluppo/ad hoc firmata per il dispositivo.
 7. Se la compilazione fallisce, conserva il log completo, soprattutto le righe error:. Non inviare una build precedente per aggirare l'errore.
 
@@ -35,7 +36,7 @@ Questa consegna contiene correzioni ai sorgenti. Non è stata compilata con Xcod
 - Prova Luminosità automatica su un iPhone reale: attiva Luminosità automatica in Impostazioni > Accessibilità > Schermo e dimensioni testo; nella prova imposta il riferimento, copri e illumina il sensore nella parte alta dello schermo e osserva se display e percentuale di luminosità reagiscono. Il valore è quello del display, non del sensore; l'esito resta una conferma dell'operatore.
 - Con Wi-Fi spento/non collegato e Bluetooth spento verifica che il popup mostri Riprova e Salta e che non apra erroneamente le impostazioni di RefurbX. Con Bluetooth negato, verifica invece l'accesso alle impostazioni specifiche dell'app.
 - Dal test NFC tocca Continua una sola volta e verifica che si apra direttamente la scheda di scansione di Apple, senza il pulsante Apri lettore tag.
-- Sulla home verifica che Informativa privacy e Versione 1.0.82 (build 91) siano visibili senza scorrere.
+- Sulla home verifica che Informativa privacy e Versione 1.0.82 (build 92) siano visibili senza scorrere.
 - Verifica assenza di Memoria/RAM/diagnosi archiviazione in home, percorso completo, scheda PDF ed esportazioni. Ripeti dopo aggiornamento da una build precedente e ripristino di una sessione.
 - Percorso completo su iPhone, poi iPad se mantieni l'app universale: schermo, audio, fotocamere, tasti, sensori, ricarica, biometria, NFC, scheda PDF e invio al banco. Controlla che prove non supportate risultino assenti e non guaste.
 - Le prove manuali e quelle indirette (es. screenshot per il tasto, stato di carica per la ricarica) verificano comportamenti osservati, non certificano l'integrità dei componenti.
@@ -87,6 +88,6 @@ In Codemagic puoi prima eseguire **RefurbX - verifica compilazione senza firma**
 
 ### Prima di dichiarare il pacchetto pronto
 
-Restano NON verificati: compilazione Xcode dei sorgenti modificati, generazione effettiva del progetto, firma con i tuoi certificati, installazione, permessi e interruzioni su dispositivo, confronto dello spazio disponibile con Impostazioni, risposta della barra luce, qualità audio/video, layout iPhone/iPad/PDF e comunicazione con il tuo banco. Il preflight non certifica questi aspetti. Non inviare ad Apple finché non sono stati controllati. La build 91 deve essere verificata in Codemagic e su dispositivo prima dell’invio.
+Restano NON verificati: compilazione Xcode dei sorgenti modificati, generazione effettiva del progetto, firma con i tuoi certificati, installazione, permessi e interruzioni su dispositivo, confronto dello spazio disponibile con Impostazioni, risposta della barra luce, bussola su iPhone reale, qualità audio/video, layout iPhone/iPad/PDF e comunicazione con il tuo banco. Il preflight non certifica questi aspetti. Non inviare ad Apple finché non sono stati controllati. La build 92 deve essere verificata in Codemagic e su dispositivo prima dell’invio.
 
 Riferimento Apple per la visualizzazione dello spazio e i vincoli di trasferimento: https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype .

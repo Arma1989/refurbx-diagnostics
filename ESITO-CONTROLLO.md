@@ -1,4 +1,4 @@
-# RefurbX 1.0.82 (91) — stato della verifica
+# RefurbX 1.0.82 (92) — stato della verifica
 
 ## Controlli statici eseguiti
 
@@ -7,9 +7,10 @@
 - Prova luce impostata sul flusso iOS documentato da M360: lettura pubblica della luminosità dello schermo, riferimento al 35%, osservazione manuale dell'adattamento automatico. Nessun accesso fotocamera o lettura diretta del sensore per questo test.
 - Spazio informativo basato su capacità del volume Foundation, senza salvataggio, grading o export.
 - NFC si avvia direttamente dal pulsante Continua; le spiegazioni dei permessi non offrono Salta prima della richiesta di sistema.
+- Bussola separata dal permesso GPS: avvio diretto del servizio heading magnetico, nessun filtro angolare, calibrazione di sistema e retry se non arrivano dati. La verifica fisica resta da eseguire su iPhone.
 - Sintassi Python e risorse immagini.
 
-Preflight `validate_release.py` superato sulla versione 1.0.82 (91). Gli 8 test offline di `test_signing.py` sono superati. Questi controlli verificano file e regole statiche, non compilano Swift.
+Preflight `validate_release.py` superato sulla versione 1.0.82 (92). Gli 8 test offline di `test_signing.py` sono superati. Questi controlli verificano file e regole statiche, non compilano Swift.
 
 ## Confronto funzionale con i test iOS documentati da M360
 
@@ -28,7 +29,7 @@ Quindi il catalogo non è una copia uno-a-uno dell'app M360. Riprende le aree di
 
 ## Limiti di verifica
 
-Questo ambiente Windows non esegue Xcode, firma Apple o test fisici su iPhone. Prima dell'invio servono compilazione Codemagic, installazione della build 91 e verifica su dispositivo di: Luminosità automatica attiva e disattiva, risposta dello schermo coprendo/illuminando il sensore, ripristino della luminosità originale dopo Passa/Fallito/Salta, valore spazio confrontato con Impostazioni, permessi, NFC, layout e report.
+Questo ambiente Windows non esegue Xcode, firma Apple o test fisici su iPhone. Prima dell'invio servono compilazione Codemagic, installazione della build 92 e verifica su dispositivo di: Luminosità automatica attiva e disattiva, risposta dello schermo coprendo/illuminando il sensore, ripristino della luminosità originale dopo Passa/Fallito/Salta, valore spazio confrontato con Impostazioni, bussola, permessi, NFC, layout e report.
 
 La guida M360 descrive per Android una barra con il valore del sensore; per iOS descrive invece l'osservazione della luminosità automatica dello schermo. RefurbX usa la seconda modalità e presenta la percentuale come luminosità dello schermo, non come misura del sensore. Questo segue una procedura documentata, ma non garantisce l'approvazione Apple.
 

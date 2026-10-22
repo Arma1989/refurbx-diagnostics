@@ -4,7 +4,7 @@ Hello App Review Team,
 
 Thank you for the feedback regarding submission 133894b8-df2a-4885-9f1d-b74f6347c8cb.
 
-For version 1.0.82 (91), we revised the app as follows.
+For version 1.0.82 (92), we revised the app as follows.
 
 Guideline 1.1.6:
 - RefurbX no longer presents device memory or storage integrity as a diagnostic. The former memory test was removed. A separate informational screen displays volume capacity values returned by public Foundation APIs; the occupied value is an estimate. These values do not create a test result, are not saved or transmitted, and are excluded from diagnostic reports and exports.
@@ -16,6 +16,7 @@ Guideline 5.1.1(iv):
 - Explanations for features requiring camera, microphone, location, and other system authorization proceed to the relevant system flow without a Skip button before the permission request. Users can decline in Apple's prompt; denied permissions are not reported as hardware failures.
 - The light test does not request camera access.
 - Settings links use Apple's public app-settings URL. When iOS does not provide a direct settings destination for a radio, the app shows instructions with Retry and Skip controls.
+- The compass test reads magnetic heading directly and does not request location access; only the GPS test uses location permission.
 - Sending diagnostic information to a workstation requires an explicit user action.
 
 The app provides guided functional checks using public APIs and operator observations. It does not certify complete hardware integrity. TrueDepth and ARKit data used during their respective checks are processed temporarily on device and are not included in exports.
