@@ -39,8 +39,14 @@ guide = (root / 'RefurbX/Guide.swift').read_text(encoding='utf-8')
 view = (root / 'RefurbX/DiagView.swift').read_text(encoding='utf-8')
 require('Informativa privacy' in view and 'https://refurbx.eu/privacy-policy' in view, 'Missing in-app privacy policy link')
 permission_ids = guide.split('static func needsSystemPermission', 1)[1].split('static func line', 1)[0]
-for value in ['camera_back', 'camera_front', 'microphone', 'gps', 'compass', 'bluetooth', 'biometrics', 'truedepth', 'lidar']:
+for value in ['camera_back', 'camera_front', 'microphone', 'gps', 'bluetooth', 'biometrics', 'truedepth', 'lidar']:
     require(f'"{value}"' in permission_ids, f'Missing pre-permission guard: {value}')
+require('"compass"' not in permission_ids, 'Compass must not request GPS/location permission')
+hardware = (root / 'RefurbX/Hardware.swift').read_text(encoding='utf-8')
+heading = hardware.split('func startHeading()', 1)[1].split('func stop()', 1)[0]
+require('headingAvailable()' in heading and 'manager.startUpdatingHeading()' in heading and 'requestWhenInUseAuthorization' not in heading, 'Compass must start the heading sensor without requesting location permission')
+require('kCLHeadingFilterNone' in hardware and 'locationManagerShouldDisplayHeadingCalibration' in hardware, 'Compass must deliver responsive heading updates and allow system calibration')
+require('Riprova bussola' in model and 'compassAttempt == attempt' in model, 'Compass must offer a safe retry when heading data is unavailable')
 require('"nfc"' in permission_ids, 'NFC explanation must lead into the system reader session')
 require('NfcTap' not in guide and 'NfcOpenController' not in (root / 'RefurbX/DiagView.swift').read_text(encoding='utf-8'), 'Remove the extra NFC reader button')
 require('private func startNfc()' in model and 'tags.beginFromTap()' in model[model.index('private func startNfc()'):model.index('private func nfcActions()')], 'Continue must start NFC reader session')
