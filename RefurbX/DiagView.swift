@@ -375,6 +375,22 @@ private struct RunScreen: View {
     @ViewBuilder private var stage: some View {
         if model.buttonBundle {
             ButtonTrio(model: model)
+        } else if model.currentId == "light" {
+            VStack(spacing: 18) {
+                Text("\(model.lightLevel)%")
+                    .font(Look.text(58, .semibold))
+                    .foregroundStyle(Look.title)
+                LightBar(level: Double(model.lightLevel) / 100)
+                Text("Luminosità attuale dello schermo · non è il valore del sensore")
+                    .font(.footnote)
+                    .foregroundStyle(Look.ink)
+                    .multilineTextAlignment(.center)
+                BenchButton(title: "Imposta riferimento 35%", kind: .secondary) {
+                    model.resetLightReference()
+                }
+                .padding(.top, 8)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         } else if model.currentId == "identity" {
             Text(model.detail.isEmpty ? "Lettura del modello" : model.detail)
                 .font(Look.text(28, .semibold))
@@ -447,7 +463,7 @@ private struct RunScreen: View {
                 }
         } else if model.showCamera {
             VStack(spacing: 8) {
-                CameraPreview(session: model.camera.session, front: model.currentId == "camera_front" || model.currentId == "light") { view in
+                CameraPreview(session: model.camera.session, front: model.currentId == "camera_front") { view in
                     model.noteCameraPreview(view)
                 }
                     .overlay {
@@ -456,16 +472,6 @@ private struct RunScreen: View {
                         }
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 16))
-                if model.currentId == "light" {
-                    Text("\(model.lightLevel)%")
-                        .font(Look.text(44, .semibold))
-                        .foregroundStyle(Look.title)
-                    LightBar(level: Double(model.lightLevel) / 100)
-                    Text("Indice relativo fotocamera · non sono lux")
-                        .font(.footnote)
-                        .foregroundStyle(Look.ink)
-                        .multilineTextAlignment(.center)
-                }
                 if model.currentId == "camera_back", model.lenses.count > 1 {
                     HStack(spacing: 8) {
                         ForEach(model.lenses, id: \.rawValue) { type in
@@ -1711,7 +1717,7 @@ private struct LightBar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Indice luce fotocamera")
+            Text("Luminosità schermo")
                 .font(.footnote)
                 .foregroundStyle(Look.ink)
             GeometryReader { geo in

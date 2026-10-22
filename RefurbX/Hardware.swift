@@ -593,19 +593,15 @@ final class MicProbe {
     }
 }
 
-final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVCaptureVideoDataOutputSampleBufferDelegate {
+final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate {
     let session = AVCaptureSession()
     private let queue = DispatchQueue(label: "refurbx.camera")
-    private let meterQueue = DispatchQueue(label: "refurbx.light")
     private var focusObservation: NSKeyValueObservation?
     private var lastLens: Float?
     private var focusGeneration = 0
     private var onCodeHandler: ((String, CGRect) -> Void)?
     weak var previewLayer: AVCaptureVideoPreviewLayer?
     private var retainedPreview: PreviewView?
-    private var meterHandler: ((Double) -> Void)?
-    private var meterClock = Date.distantPast
-    private weak var meterDevice: AVCaptureDevice?
 
     func holdPreview(_ view: PreviewView) {
         previewLayer = view.previewLayer
@@ -639,7 +635,7 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
         }
     }
 
-    func start(front: Bool, lens: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, scanQR: Bool = false, onFocus: @escaping () -> Void, onCode: @escaping (String, CGRect) -> Void = { _, _ in }, onRunning: @escaping () -> Void, onError: @escaping (String) -> Void, onMeter: ((Double) -> Void)? = nil) {
+    func start(front: Bool, lens: AVCaptureDevice.DeviceType = .builtInWideAngleCamera, scanQR: Bool = false, onFocus: @escaping () -> Void, onCode: @escaping (String, CGRect) -> Void = { _, _ in }, onRunning: @escaping () -> Void, onError: @escaping (String) -> Void) {
         focusGeneration += 1
         let generation = focusGeneration
         onCodeHandler = nil
@@ -661,17 +657,6 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
                 return
             }
             self.session.addInput(input)
-            self.meterHandler = onMeter
-            self.meterDevice = onMeter == nil ? nil : camera
-            if onMeter != nil {
-                let video = AVCaptureVideoDataOutput()
-                video.alwaysDiscardsLateVideoFrames = true
-                video.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-                video.setSampleBufferDelegate(self, queue: self.meterQueue)
-                if self.session.canAddOutput(video) {
-                    self.session.addOutput(video)
-                }
-            }
             var metadata: AVCaptureMetadataOutput?
             if scanQR {
                 let output = AVCaptureMetadataOutput()
@@ -743,61 +728,10 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
         session.commitConfiguration()
     }
 
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        let now = Date()
-        guard now.timeIntervalSince(meterClock) >= 0.08 else { return }
-        meterClock = now
-        guard let pixel = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let luma = Self.meanLuma(pixel)
-        var scene = luma
-        if let camera = meterDevice {
-            let iso = Double(camera.iso)
-            let seconds = camera.exposureDuration.seconds
-            if iso > 1, seconds > 0 {
-                scene = 1.0 / (iso * seconds)
-            }
-        }
-        let handler = meterHandler
-        DispatchQueue.main.async { handler?(scene) }
-    }
-
-    private static func meanLuma(_ pixel: CVPixelBuffer) -> Double {
-        CVPixelBufferLockBaseAddress(pixel, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(pixel, .readOnly) }
-        guard let base = CVPixelBufferGetBaseAddress(pixel) else { return 0 }
-        guard CVPixelBufferGetPixelFormatType(pixel) == kCVPixelFormatType_32BGRA else { return 0 }
-        let width = CVPixelBufferGetWidth(pixel)
-        let height = CVPixelBufferGetHeight(pixel)
-        let stride = CVPixelBufferGetBytesPerRow(pixel)
-        let step = 28
-        var sum = 0.0
-        var count = 0
-        var y = 0
-        while y < height {
-            let row = base.advanced(by: y * stride).assumingMemoryBound(to: UInt8.self)
-            var x = 0
-            while x < width {
-                let index = x * 4
-                if index + 2 >= stride { break }
-                let blue = Double(row[index])
-                let green = Double(row[index + 1])
-                let red = Double(row[index + 2])
-                sum += 0.0722 * blue + 0.7152 * green + 0.2126 * red
-                count += 1
-                x += step
-            }
-            y += step
-        }
-        guard count > 0 else { return 0 }
-        return sum / Double(count) / 255.0
-    }
-
     func stop(done: (() -> Void)? = nil) {
         focusGeneration += 1
         let generation = focusGeneration
         onCodeHandler = nil
-        meterHandler = nil
-        meterDevice = nil
         let view = retainedPreview
         queue.async {
             dispatchPrecondition(condition: .notOnQueue(.main))
@@ -860,14 +794,6 @@ final class CameraSession: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVC
         AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front) != nil
     }
 
-    static func lightPercentage(from exposureIndex: Double) -> Int {
-        guard exposureIndex.isFinite, exposureIndex > 0 else { return 0 }
-        // Relative display index, deliberately not lux: exposureIndex is
-        // derived from camera ISO and shutter duration and varies by device.
-        let stops = log2(exposureIndex)
-        let normalized = (stops + 8.0) / 12.0
-        return Int((min(1, max(0, normalized)) * 100).rounded())
-    }
 }
 
 final class PreviewView: UIView {

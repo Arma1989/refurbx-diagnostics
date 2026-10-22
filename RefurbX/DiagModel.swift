@@ -189,7 +189,8 @@ final class DiagModel: ObservableObject {
     private var micCursor = 0
     private var micLines: [String] = []
     private var micBad = false
-    private var lightMeterInitialized = false
+    private var originalLightBrightness: CGFloat?
+    private var lightBrightnessObserver: NSObjectProtocol?
     private var micLabel = "Microfono"
     private var micToken = 0
     private var faceArmed = false
@@ -361,7 +362,17 @@ final class DiagModel: ObservableObject {
     }
 
     func onScenePhase(_ phase: ScenePhase) {
-        guard phase == .active, self.phase == "run", !settled else { return }
+        if phase != .active {
+            if self.phase == "run", currentId == "light", !settled {
+                restoreLightReference()
+            }
+            return
+        }
+        guard self.phase == "run", !settled else { return }
+        if currentId == "light" {
+            prepareLightReference()
+            return
+        }
         let resume = awaitingSettings
         awaitingSettings = false
         if resume {
@@ -630,48 +641,49 @@ final class DiagModel: ObservableObject {
     }
 
     private func startLight() {
-        lightLevel = 0
-        lightMeterInitialized = false
-        hint = "La fotocamera anteriore mostra un indice relativo: copri per un momento la zona frontale in alto, poi illuminala e controlla che l'indice cambi."
-        detail = "L'indice deriva dall'esposizione della fotocamera: non misura i lux e non legge direttamente il sensore ambientale Apple."
-        actions = []
-        AVCaptureDevice.requestAccess(for: .video) { granted in
-            DispatchQueue.main.async {
-                guard self.still("light") else { return }
-                guard granted else {
-                    self.holdForPermission(camera: true)
-                    return
-                }
-                self.showCamera = true
-                self.pendingCamera = { [weak self] in
-                    guard let self, self.still("light") else { return }
-                    self.camera.start(front: true, onFocus: {}, onRunning: {
-                        guard self.still("light") else { return }
-                        self.hint = "Copri la parte frontale in alto per qualche secondo, poi illuminala. L'indice dovrebbe scendere e poi salire."
-                        self.detail = "Indice relativo della fotocamera · non sono lux né una diagnosi del sensore ambientale."
-                        self.actions = [
-                            Act(label: "L'indice aumenta con la luce", status: "pass", note: "Variazione dell'esposizione della fotocamera anteriore osservata dall'operatore; non è una misura del sensore ambientale né una diagnosi hardware"),
-                            Act(label: "Nessun cambiamento · inconclusivo", status: "skip", note: "Indice della fotocamera senza variazione osservabile; esito inconclusivo, non diagnostica il sensore ambientale"),
-                            Act(label: "Salta", status: "skip", note: "Prova luce non eseguita"),
-                        ]
-                    }, onError: { message in
-                        guard self.still("light") else { return }
-                        self.showCamera = false
-                        self.detail = message
-                        self.hint = "La fotocamera anteriore non è disponibile per questa prova."
-                        self.actions = [Act(label: "Salta · non verificabile", status: "skip", note: "Fotocamera anteriore non disponibile")]
-                    }, onMeter: { value in
-                        guard self.still("light") else { return }
-                        let measured = CameraSession.lightPercentage(from: value)
-                        if self.lightMeterInitialized {
-                            self.lightLevel = Int((Double(self.lightLevel) * 0.72 + Double(measured) * 0.28).rounded())
-                        } else {
-                            self.lightLevel = measured
-                            self.lightMeterInitialized = true
-                        }
-                    })
-                }
+        prepareLightReference()
+        hint = "Attiva Luminosità automatica in Impostazioni > Accessibilità > Schermo e dimensioni testo. Poi copri e illumina il sensore vicino alla parte alta dello schermo: osserva se il display e la percentuale di luminosità cambiano."
+        detail = "Percentuale della luminosità dello schermo, non lettura diretta del sensore luce."
+        actions = [
+            Act(label: "La luminosità reagisce alla luce", status: "pass", note: "L'operatore ha osservato la regolazione automatica della luminosità dello schermo al variare della luce ambientale"),
+            Act(label: "Non reagisce", status: "fail", note: "Luminosità automatica attiva; l'operatore non ha osservato una variazione dello schermo al variare della luce"),
+            Act(label: "Salta", status: "skip", note: "Prova luce non eseguita"),
+        ]
+    }
+
+    func resetLightReference() {
+        guard still("light") else { return }
+        UIScreen.main.brightness = 0.35
+        lightLevel = Int((UIScreen.main.brightness * 100).rounded())
+        detail = "Riferimento impostato al 35% · ora copri e illumina il sensore ambientale"
+    }
+
+    private func prepareLightReference() {
+        let screen = UIScreen.main
+        if originalLightBrightness == nil { originalLightBrightness = screen.brightness }
+        if lightBrightnessObserver == nil {
+            lightBrightnessObserver = NotificationCenter.default.addObserver(
+                forName: UIScreen.brightnessDidChangeNotification,
+                object: screen,
+                queue: .main
+            ) { [weak self] _ in
+                guard let self, self.still("light") else { return }
+                self.lightLevel = Int((UIScreen.main.brightness * 100).rounded())
+                self.detail = "Luminosità schermo: \(self.lightLevel)% · osserva se cambia con la luce"
             }
+        }
+        screen.brightness = 0.35
+        lightLevel = Int((screen.brightness * 100).rounded())
+    }
+
+    private func restoreLightReference() {
+        if let lightBrightnessObserver {
+            NotificationCenter.default.removeObserver(lightBrightnessObserver)
+            self.lightBrightnessObserver = nil
+        }
+        if let originalLightBrightness {
+            UIScreen.main.brightness = originalLightBrightness
+            self.originalLightBrightness = nil
         }
     }
 
@@ -2155,6 +2167,7 @@ final class DiagModel: ObservableObject {
 
     private func cleanup(releaseCamera: Bool = true) {
         showCamera = false
+        restoreLightReference()
         face.cancel()
         faceTrack.stop()
         tone.stop()

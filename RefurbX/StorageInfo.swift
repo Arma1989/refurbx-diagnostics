@@ -8,15 +8,23 @@ struct StorageSnapshot {
     var occupied: Int64 { total - available }
 
     static func read() throws -> StorageSnapshot {
-        // Query the root filesystem. On APFS, FileManager's filesystem free
-        // size includes free space shared by the system and data volumes.
-        let attributes = try FileManager.default.attributesOfFileSystem(forPath: "/")
-        guard let totalValue = attributes[.systemSize] as? NSNumber,
-              let availableValue = attributes[.systemFreeSize] as? NSNumber else {
+        // Ask iOS about the volume containing the user's Documents directory.
+        // Important-usage capacity estimates space available for user-requested
+        // content; the immediate free-block count can be much lower on APFS.
+        guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
             throw CocoaError(.fileReadUnknown)
         }
-        let total = totalValue.int64Value
-        let available = availableValue.int64Value
+        let values = try documents.resourceValues(forKeys: [
+            .volumeTotalCapacityKey,
+            .volumeAvailableCapacityForImportantUsageKey,
+            .volumeAvailableCapacityKey,
+        ])
+        guard let totalValue = values.volumeTotalCapacity,
+              let availableValue = values.volumeAvailableCapacityForImportantUsage ?? values.volumeAvailableCapacity else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        let total = Int64(totalValue)
+        let available = Int64(availableValue)
         guard total > 0, available >= 0, available <= total else {
             throw CocoaError(.fileReadUnknown)
         }
@@ -45,15 +53,15 @@ struct StorageInfoView: View {
                 Section("Informazioni sul file system") {
                     if let snapshot {
                         LabeledContent("Capacità del file system", value: StorageSnapshot.format(snapshot.total))
-                        LabeledContent("Spazio disponibile", value: StorageSnapshot.format(snapshot.available))
+                        LabeledContent("Disponibile per nuovi contenuti", value: StorageSnapshot.format(snapshot.available))
                         LabeledContent("Spazio occupato (stima)", value: StorageSnapshot.format(snapshot.occupied))
                     } else {
                         Text(unavailable ? "Informazioni non disponibili. Riprova più tardi." : "Lettura in corso…")
                     }
                 }
                 Section {
-                    Text("Dati del file system restituiti da iOS al momento della lettura. Lo spazio disponibile è lo spazio libero condiviso sul file system APFS. Lo spazio occupato è una stima calcolata sottraendo il disponibile dal totale. 1 GB = 1 miliardo di byte.")
-                    Text("Impostazioni può mostrare valori leggermente diversi per via dello spazio riservato e dei dati di sistema. Non è una diagnosi della memoria RAM o dell'integrità dell'archiviazione.")
+                    Text("Stima iOS dello spazio disponibile per contenuti richiesti dall'utente sul volume dell'app. Il valore può differire da Impostazioni perché iOS riserva spazio e gestisce i contenuti eliminabili. Lo spazio occupato è una stima calcolata sottraendo il disponibile dal totale. 1 GB = 1 miliardo di byte.")
+                    Text("Queste informazioni non diagnosticano la memoria RAM o l'integrità dell'archiviazione.")
                     Text("Questa schermata è informativa: non esegue una diagnosi della RAM o dell'integrità dell'archiviazione. I valori non vengono salvati nella scheda, esportati o inviati al banco.")
                 }
                 Section {
