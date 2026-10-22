@@ -19,8 +19,10 @@ struct StorageSnapshot {
             .volumeAvailableCapacityForImportantUsageKey,
             .volumeAvailableCapacityKey,
         ])
+        let availableCapacity = values.volumeAvailableCapacityForImportantUsage
+            ?? values.volumeAvailableCapacity.map(Int64.init)
         guard let totalValue = values.volumeTotalCapacity,
-              let availableValue = values.volumeAvailableCapacityForImportantUsage ?? values.volumeAvailableCapacity else {
+              let availableValue = availableCapacity else {
             throw CocoaError(.fileReadUnknown)
         }
         let total = Int64(totalValue)
