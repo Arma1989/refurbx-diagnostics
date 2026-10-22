@@ -1,25 +1,23 @@
-Draft — send only after building and checking the submitted binary and App Store metadata.
+Draft only. Update after Codemagic build, device testing, and App Store metadata verification.
 
 Hello App Review Team,
 
-Thank you for the detailed feedback regarding submission 133894b8-df2a-4885-9f1d-b74f6347c8cb, version 1.0.80 (82).
+Thank you for the feedback regarding submission 133894b8-df2a-4885-9f1d-b74f6347c8cb.
 
-We have revised the project for version 1.0.82 (90) as follows:
+For version 1.0.82 (91), we revised the app as follows.
 
 Guideline 1.1.6:
-- The app does not offer a device memory diagnostic. The old diagnostic implementation and memory-test state have been removed. A separate informational screen displays total and available volume capacity returned by public Foundation APIs; occupied space is estimated. It does not test RAM or storage hardware integrity, has no pass/fail result and is excluded from diagnostic reports and shop exports. These display-only values are not persisted or sent off-device. The privacy manifest declares disk-space reason 85F4.1.
-- The light check shows a relative 0–100 index derived from front-camera exposure while the user covers and illuminates the front upper area. The app explains that this is a camera-based exposure indicator, not lux and not direct access to the ambient-light sensor. Frames are processed in memory, not saved or sent. The operator confirms only an observed change; no change is inconclusive, not a hardware diagnosis.
-- The NFC explanation screen has a Continue button without a Skip option. Tapping Continue starts the Core NFC reader session directly, which displays Apple's system scanning sheet. A separate retry button is available only if the session ends before a tag is read.
-- The public privacy-policy link is visible on the app's home screen before starting tests.
+- RefurbX no longer presents device memory or storage integrity as a diagnostic. The former memory test was removed. A separate informational screen displays volume capacity values returned by public Foundation APIs; the occupied value is an estimate. These values do not create a test result, are not saved or transmitted, and are excluded from diagnostic reports and exports.
+- The light test follows a user-observed iOS auto-brightness check. It displays the screen brightness level and asks the operator to enable Auto-Brightness and observe the display while changing ambient light. The displayed percentage is the screen brightness, not a direct reading of the ambient-light sensor or a lux measurement. The result is confirmed by the operator.
+- The NFC explanation screen has no Skip option. Continue starts the Core NFC reader session directly and displays Apple's system scanning sheet.
+- The app's home screen contains a link to its privacy policy.
 
 Guideline 5.1.1(iv):
-- The custom explanations preceding permission-related features do not include a Skip button. Continue starts the relevant feature and its system authorization flow when authorization has not already been determined.
-- Users can decline the system permission. Camera, microphone and location denial are handled without reporting the missing permission as a hardware defect, and the user can skip the unavailable test.
-- Links for changing app permissions now use Apple's public app-settings URL.
-- Preparing the cable outbox requires the user to select Send to workstation. Previous outboxes are removed when starting the app or a new session.
+- Explanations for features requiring camera, microphone, location, and other system authorization proceed to the relevant system flow without a Skip button before the permission request. Users can decline in Apple's prompt; denied permissions are not reported as hardware failures.
+- The light test does not request camera access.
+- Settings links use Apple's public app-settings URL. When iOS does not provide a direct settings destination for a radio, the app shows instructions with Retry and Skip controls.
+- Sending diagnostic information to a workstation requires an explicit user action.
 
-The app provides guided functional checks using supported APIs and explicitly identified operator observations. It does not certify complete hardware integrity. No account is required for the on-device checks. Sending the report to a shop workstation is optional.
-
-For TrueDepth, ARKit face mesh and the camera preview are used temporarily during the test. The app does not access Face ID biometric templates or an infrared image, and the preview and mesh are not included in the exported report.
+The app provides guided functional checks using public APIs and operator observations. It does not certify complete hardware integrity. TrueDepth and ARKit data used during their respective checks are processed temporarily on device and are not included in exports.
 
 Thank you for reviewing the updated submission.
